@@ -1,5 +1,7 @@
 package cn.buffcow.hyperste
 
+import cn.buffcow.hyperste.hook.HookInstaller
+import cn.buffcow.hyperste.hook.SettingsTileLongPressHook
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 
@@ -57,9 +59,9 @@ class MainModule : XposedModule() {
     private fun installHooks(param: XposedModuleInterface.PackageReadyParam) {
         param.run {
             when (packageName) {
-                SYSTEM_UI_PACKAGE -> {
-                    // TODO: 2026/8/12
-                }
+                SYSTEM_UI_PACKAGE -> installHookSafely(
+                    SettingsTileLongPressHook(classLoader),
+                )
             }
         }
     }
@@ -68,6 +70,12 @@ class MainModule : XposedModule() {
         return when (packageName) {
             SYSTEM_UI_PACKAGE -> SYSTEM_UI_PACKAGE
             else -> null
+        }
+    }
+
+    private fun installHookSafely(installer: HookInstaller) {
+        runCatching(installer::install).onFailure {
+            logError("${installer.javaClass.simpleName} hook installation failed; ignored", it)
         }
     }
 

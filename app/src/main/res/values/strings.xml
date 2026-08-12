@@ -2,4 +2,9 @@
 <resources>
     <string name="app_name">HyperSettingsTileExt</string>
     <string name="xposed_description">Extends the HyperOS Settings tile long-press action with quick access to common system toggles.</string>
+    <string name="quick_toggle_dialog_title">Quick controls</string>
+    <string name="quick_toggle_close">Close</string>
+    <string name="quick_toggle_state_on">On</string>
+    <string name="quick_toggle_state_off">Off</string>
+    <string name="quick_toggle_usb_otg_title">USB OTG</string>
 </resources>

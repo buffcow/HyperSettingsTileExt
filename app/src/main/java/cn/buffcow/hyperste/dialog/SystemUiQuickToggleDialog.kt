@@ -1,0 +1,586 @@
+package cn.buffcow.hyperste.dialog
+
+import android.annotation.SuppressLint
+import android.app.AlertDialog
+import android.content.Context
+import android.content.DialogInterface
+import android.content.Intent
+import android.os.Looper
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.widget.CompoundButton
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.logDebug
+import cn.buffcow.hyperste.logError
+import cn.buffcow.hyperste.resource.ModuleResources
+import cn.buffcow.hyperste.toggle.QuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleActionHost
+import cn.buffcow.hyperste.toggle.QuickToggleState
+import java.lang.ref.WeakReference
+import java.lang.reflect.Constructor
+import java.lang.reflect.Method
+
+/**
+ * Renders system-backed quick toggles inside a SystemUI dialog.
+ *
+ * @author qingyu
+ * <p>Create on 2026/08/12 16:05</p>
+ */
+internal class SystemUiQuickToggleDialog(
+    classLoader: ClassLoader,
+    quickToggles: List<QuickToggle>,
+) {
+
+    @SuppressLint("PrivateApi")
+    private val systemUiDialogConstructor: Constructor<*> = classLoader
+        .loadClass(SYSTEM_UI_DIALOG_CLASS)
+        .getConstructor(Context::class.java)
+        .apply {
+            isAccessible = true
+        }
+    private val activityStarterClass = classLoader.loadClass(ACTIVITY_STARTER_CLASS)
+    private val postStartActivityMethod = activityStarterClass.getMethod(
+        POST_START_ACTIVITY_METHOD,
+        Intent::class.java,
+        Int::class.javaPrimitiveType!!,
+    ).apply {
+        isAccessible = true
+    }
+    private val slidingButtonReflection: SlidingButtonReflection? = runCatching {
+        classLoader.loadClass(MIUIX_SLIDING_BUTTON_CLASS)
+            .asSubclass(CompoundButton::class.java)
+            .run {
+                SlidingButtonReflection(
+                    constructor = getConstructor(Context::class.java).apply {
+                        isAccessible = true
+                    },
+                    setOnPerformCheckedChangeListenerMethod = getMethod(
+                        SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD,
+                        CompoundButton.OnCheckedChangeListener::class.java,
+                    ).apply {
+                        isAccessible = true
+                    },
+                )
+            }
+    }.onFailure {
+        logDebug(
+            "HyperOS SlidingButton is unavailable; using the platform Switch fallback: " +
+                    it.javaClass.simpleName,
+        )
+    }.getOrNull()
+    private val quickToggles = quickToggles.distinctBy(QuickToggle::id)
+    private var activeDialogReference: WeakReference<AlertDialog>? = null
+
+    /**
+     * Shows the quick-toggle dialog on the main thread.
+     *
+     * A `false` result indicates that the caller should preserve the original system
+     * long-press behavior because no toggle is available or the dialog could not be shown.
+     */
+    fun show(context: Context, activityStarter: Any): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            logError(
+                "SettingsTile long press was invoked off the main thread; " +
+                        "preserving the original system behavior",
+                null,
+            )
+            return false
+        }
+        return showSafely(context, activityStarter)
+    }
+
+    private fun showSafely(context: Context, activityStarter: Any): Boolean {
+        return runCatching {
+            if (activeDialogReference?.get()?.isShowing == true) {
+                return@runCatching true
+            }
+
+            val moduleResources = ModuleResources.from(context)
+            val availableToggles = collectAvailableToggles(moduleResources)
+            if (availableToggles.isEmpty()) {
+                logDebug("No supported quick toggles are available; preserving system behavior")
+                return@runCatching false
+            }
+
+            val actionHost = createActionHost(context, activityStarter)
+            showNow(context, moduleResources, availableToggles, actionHost)
+            true
+        }.getOrElse {
+            logError("Failed to create or show the SystemUI quick toggle dialog", it)
+            false
+        }
+    }
+
+    private fun collectAvailableToggles(
+        moduleResources: ModuleResources?,
+    ): List<QuickToggleEntry> {
+        return quickToggles.mapNotNull { quickToggle ->
+            runCatching {
+                quickToggle.readState()
+            }.onFailure {
+                logError("Failed to read initial quick toggle state: id=${quickToggle.id}", it)
+            }.getOrNull()
+                ?.takeIf(QuickToggleState::isAvailable)
+                ?.let { state ->
+                    QuickToggleEntry(
+                        quickToggle = quickToggle,
+                        state = state,
+                        title = moduleResources.resolveString(
+                            quickToggle.titleRes,
+                            quickToggle.fallbackTitle,
+                        ),
+                        description = quickToggle.descriptionRes?.let { resourceId ->
+                            moduleResources.resolveString(
+                                resourceId,
+                                quickToggle.fallbackDescription.orEmpty(),
+                            ).takeIf(String::isNotEmpty)
+                        } ?: quickToggle.fallbackDescription,
+                    )
+                }
+        }
+    }
+
+    private fun showNow(
+        context: Context,
+        moduleResources: ModuleResources?,
+        entries: List<QuickToggleEntry>,
+        actionHost: QuickToggleActionHost,
+    ) {
+        val dialog = systemUiDialogConstructor.newInstance(context) as AlertDialog
+        dialog.apply {
+            setTitle(
+                moduleResources.resolveString(
+                    R.string.quick_toggle_dialog_title,
+                    FALLBACK_DIALOG_TITLE,
+                ),
+            )
+            setView(createContentView(context, moduleResources, entries, actionHost))
+            setButton(
+                DialogInterface.BUTTON_NEGATIVE,
+                moduleResources.resolveString(
+                    R.string.quick_toggle_close,
+                    FALLBACK_CLOSE_BUTTON_LABEL,
+                ),
+            ) { target, _ -> target.dismiss() }
+            show()
+        }
+        activeDialogReference = WeakReference(dialog)
+        logDebug("SystemUI quick toggle dialog shown: toggleCount=${entries.size}")
+    }
+
+    private fun createContentView(
+        context: Context,
+        moduleResources: ModuleResources?,
+        entries: List<QuickToggleEntry>,
+        actionHost: QuickToggleActionHost,
+    ): ScrollView {
+        val horizontalPadding = context.dp(HORIZONTAL_PADDING_DP)
+        val verticalPadding = context.dp(VERTICAL_PADDING_DP)
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(horizontalPadding, 0, horizontalPadding, verticalPadding)
+            entries.forEach { entry ->
+                val binding = createToggleBinding(context, moduleResources, entry, actionHost)
+                addView(
+                    binding.container,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+                schedulePeriodicStateRefresh(binding)
+            }
+        }
+        return ScrollView(context).apply {
+            isFillViewport = true
+            addView(
+                content,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createToggleBinding(
+        context: Context,
+        moduleResources: ModuleResources?,
+        entry: QuickToggleEntry,
+        actionHost: QuickToggleActionHost,
+    ): ToggleBinding {
+        val toggle = createToggle(context).apply {
+            isClickable = true
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            setOnLongClickListener { true }
+            setOnTouchListener { view, event ->
+                val isLongClickRelease = event.actionMasked == MotionEvent.ACTION_UP &&
+                        event.eventTime - event.downTime >=
+                        ViewConfiguration.getLongPressTimeout()
+                if (isLongClickRelease) {
+                    MotionEvent.obtain(event).run {
+                        try {
+                            action = MotionEvent.ACTION_CANCEL
+                            view.onTouchEvent(this)
+                        } finally {
+                            recycle()
+                        }
+                    }
+                }
+                isLongClickRelease
+            }
+        }
+        val toggleTouchTarget = FrameLayout(context).apply {
+            isClickable = true
+            isLongClickable = true
+            addView(
+                toggle,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER,
+                ),
+            )
+            setOnLongClickListener { true }
+        }
+        val secondaryTextView = TextView(context).apply {
+            alpha = DESCRIPTION_ALPHA
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, DESCRIPTION_TEXT_SIZE_SP)
+            setPadding(0, context.dp(DESCRIPTION_TOP_PADDING_DP), 0, 0)
+            visibility = View.GONE
+        }
+        val textContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                TextView(context).apply {
+                    text = entry.title
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_TEXT_SIZE_SP)
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            addView(
+                secondaryTextView,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = context.dp(TOGGLE_HEIGHT_DP)
+            isClickable = true
+            isFocusable = true
+            addView(
+                textContainer,
+                LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ),
+            )
+            addView(
+                toggleTouchTarget,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    marginStart = context.dp(TOGGLE_START_MARGIN_DP)
+                },
+            )
+        }
+        return ToggleBinding(
+            container = container,
+            toggle = toggle,
+            secondaryTextView = secondaryTextView,
+            quickToggle = entry.quickToggle,
+            title = entry.title,
+            defaultSecondaryText = entry.description,
+            stateOnLabel = moduleResources.resolveString(
+                R.string.quick_toggle_state_on,
+                FALLBACK_STATE_ON_LABEL,
+            ),
+            stateOffLabel = moduleResources.resolveString(
+                R.string.quick_toggle_state_off,
+                FALLBACK_STATE_OFF_LABEL,
+            ),
+        ).also { binding ->
+            applyState(binding, entry.state)
+            container.setOnClickListener {
+                if (toggle.isEnabled) {
+                    requestStateChange(binding, !toggle.isChecked)
+                }
+            }
+            toggleTouchTarget.setOnClickListener {
+                if (toggle.isEnabled) {
+                    requestStateChange(binding, !toggle.isChecked)
+                }
+            }
+            bindToggleClickListener(binding)
+            entry.quickToggle.longClickAction?.let { action ->
+                container.setOnLongClickListener {
+                    performLongClickAction(binding, action, actionHost)
+                }
+            }
+        }
+    }
+
+    private fun bindToggleClickListener(binding: ToggleBinding) {
+        val miuixListenerBound = slidingButtonReflection
+            ?.takeIf { reflection ->
+                reflection.constructor.declaringClass.isInstance(binding.toggle)
+            }
+            ?.let { reflection ->
+                runCatching {
+                    reflection.setOnPerformCheckedChangeListenerMethod.invoke(
+                        binding.toggle,
+                        CompoundButton.OnCheckedChangeListener { _, isChecked ->
+                            logDebug(
+                                "HyperOS SlidingButton state change performed: " +
+                                        "id=${binding.quickToggle.id}, checked=$isChecked",
+                            )
+                            if (binding.toggle.isEnabled) {
+                                requestStateChange(binding, isChecked)
+                            }
+                        },
+                    )
+                    logDebug(
+                        "Bound HyperOS SlidingButton state change listener: " +
+                                "id=${binding.quickToggle.id}",
+                    )
+                    true
+                }.onFailure {
+                    logError("Failed to bind the HyperOS SlidingButton change listener", it)
+                }.getOrDefault(false)
+            } == true
+        if (!miuixListenerBound) {
+            binding.toggle.setOnClickListener {
+                if (binding.toggle.isEnabled) {
+                    requestStateChange(binding, binding.toggle.isChecked)
+                }
+            }
+        }
+    }
+
+    private fun requestStateChange(binding: ToggleBinding, requestedState: Boolean) {
+        logDebug(
+            "Quick toggle state change requested: " +
+                    "id=${binding.quickToggle.id}, checked=$requestedState",
+        )
+        binding.toggle.apply {
+            isChecked = requestedState
+            isEnabled = false
+        }
+        runCatching {
+            binding.quickToggle.setChecked(requestedState)
+        }.onFailure {
+            logError(
+                "Failed to change quick toggle state: " +
+                        "id=${binding.quickToggle.id}, checked=$requestedState",
+                it,
+            )
+        }
+        scheduleStateRefreshes(binding)
+    }
+
+    private fun performLongClickAction(
+        binding: ToggleBinding,
+        action: QuickToggleAction,
+        actionHost: QuickToggleActionHost,
+    ): Boolean {
+        runCatching {
+            action.perform(actionHost)
+        }.onSuccess {
+            activeDialogReference?.get()?.dismiss()
+        }.onFailure {
+            logError(
+                "Failed to perform quick toggle long-click action: id=${binding.quickToggle.id}",
+                it,
+            )
+        }
+        return true
+    }
+
+    private fun createActionHost(
+        hostContext: Context,
+        activityStarter: Any,
+    ): QuickToggleActionHost {
+        require(activityStarterClass.isInstance(activityStarter)) {
+            "SettingsTile.mActivityStarter has an unexpected type: ${activityStarter.javaClass.name}"
+        }
+        return object : QuickToggleActionHost {
+            override val context: Context = hostContext
+
+            override fun startActivity(intent: Intent) {
+                postStartActivityMethod.invoke(activityStarter, intent, NO_LAUNCH_DELAY_MS)
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun createToggle(context: Context): CompoundButton {
+        return slidingButtonReflection?.constructor?.let { constructor ->
+            runCatching {
+                constructor.newInstance(context)
+            }.onFailure {
+                logError("Failed to create the HyperOS SlidingButton", it)
+            }.getOrNull()
+        } ?: Switch(context)
+    }
+
+    private fun scheduleStateRefreshes(binding: ToggleBinding) {
+        STATE_REFRESH_DELAYS_MS.forEach { refreshDelay ->
+            binding.toggle.postDelayed(
+                {
+                    if (binding.toggle.isAttachedToWindow) {
+                        bindCurrentState(binding)
+                    }
+                },
+                refreshDelay,
+            )
+        }
+    }
+
+    private fun schedulePeriodicStateRefresh(binding: ToggleBinding) {
+        binding.toggle.postDelayed(
+            object : Runnable {
+                override fun run() {
+                    if (!binding.toggle.isAttachedToWindow) {
+                        return
+                    }
+                    bindCurrentState(binding)
+                    binding.toggle.postDelayed(this, STATE_POLL_INTERVAL_MS)
+                }
+            },
+            STATE_POLL_INTERVAL_MS,
+        )
+    }
+
+    private fun bindCurrentState(binding: ToggleBinding) {
+        runCatching {
+            binding.quickToggle.readState()
+        }.onSuccess { state ->
+            binding.readFailed = false
+            applyState(binding, state)
+        }.onFailure {
+            binding.container.isEnabled = false
+            binding.toggle.isEnabled = false
+            if (!binding.readFailed) {
+                binding.readFailed = true
+                logError(
+                    "Failed to refresh quick toggle state: id=${binding.quickToggle.id}",
+                    it,
+                )
+            }
+        }
+    }
+
+    private fun applyState(binding: ToggleBinding, state: QuickToggleState) {
+        binding.container.visibility = if (state.isAvailable) View.VISIBLE else View.GONE
+        if (!state.isAvailable) {
+            return
+        }
+        val stateLabel =
+            if (state.isChecked) binding.stateOnLabel else binding.stateOffLabel
+        val secondaryText = state.secondaryText ?: binding.defaultSecondaryText
+        binding.container.apply {
+            isEnabled = state.isEnabled || binding.quickToggle.longClickAction != null
+            contentDescription = buildString {
+                append(binding.title)
+                append(", ")
+                append(stateLabel)
+                if (!secondaryText.isNullOrEmpty()) {
+                    append(", ")
+                    append(secondaryText)
+                }
+            }
+        }
+        binding.toggle.apply {
+            isChecked = state.isChecked
+            isEnabled = state.isEnabled
+        }
+        binding.secondaryTextView.apply {
+            text = secondaryText
+            visibility = if (secondaryText.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+    }
+
+    private fun ModuleResources?.resolveString(resourceId: Int, fallback: String): String {
+        return this?.getString(resourceId, fallback) ?: fallback
+    }
+
+    private fun Context.dp(value: Int): Int {
+        return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private data class QuickToggleEntry(
+        val quickToggle: QuickToggle,
+        val state: QuickToggleState,
+        val title: String,
+        val description: String?,
+    )
+
+    private data class ToggleBinding(
+        val container: LinearLayout,
+        val toggle: CompoundButton,
+        val secondaryTextView: TextView,
+        val quickToggle: QuickToggle,
+        val title: String,
+        val defaultSecondaryText: CharSequence?,
+        val stateOnLabel: String,
+        val stateOffLabel: String,
+        var readFailed: Boolean = false,
+    )
+
+    private data class SlidingButtonReflection(
+        val constructor: Constructor<out CompoundButton>,
+        val setOnPerformCheckedChangeListenerMethod: Method,
+    )
+
+    companion object {
+        private const val SYSTEM_UI_DIALOG_CLASS =
+            "com.android.systemui.statusbar.phone.SystemUIDialog"
+        private const val ACTIVITY_STARTER_CLASS =
+            "com.android.systemui.plugins.ActivityStarter"
+        private const val POST_START_ACTIVITY_METHOD =
+            "postStartActivityDismissingKeyguard"
+        private const val MIUIX_SLIDING_BUTTON_CLASS =
+            "miuix.slidingwidget.widget.SlidingButton"
+        private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD =
+            "setOnPerformCheckedChangeListener"
+
+        private const val FALLBACK_DIALOG_TITLE = "Quick controls"
+        private const val FALLBACK_CLOSE_BUTTON_LABEL = "Close"
+        private const val FALLBACK_STATE_ON_LABEL = "On"
+        private const val FALLBACK_STATE_OFF_LABEL = "Off"
+
+        private const val HORIZONTAL_PADDING_DP = 24
+        private const val VERTICAL_PADDING_DP = 8
+        private const val TOGGLE_START_MARGIN_DP = 16
+        private const val TOGGLE_HEIGHT_DP = 52
+        private const val DESCRIPTION_TOP_PADDING_DP = 4
+        private const val TITLE_TEXT_SIZE_SP = 16f
+        private const val DESCRIPTION_TEXT_SIZE_SP = 13f
+        private const val DESCRIPTION_ALPHA = 0.7f
+        private const val NO_LAUNCH_DELAY_MS = 0
+        private const val STATE_POLL_INTERVAL_MS = 2_000L
+
+        private val STATE_REFRESH_DELAYS_MS = longArrayOf(300L, 900L, 1_800L)
+    }
+}
