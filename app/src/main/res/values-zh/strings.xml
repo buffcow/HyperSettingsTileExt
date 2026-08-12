@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HyperSettingsTileExt</string>
+    <string name="xposed_description">扩展 HyperOS 控制中心“设置”磁贴的长按功能，快速访问常用系统开关</string>
+</resources>
