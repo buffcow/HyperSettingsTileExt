@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
 import cn.buffcow.hyperste.toggle.UsbOtgQuickToggle
+import io.github.libxposed.api.XposedInterface.Invoker
 
 /**
  * Intercepts the Control Center Settings tile long-press entry point and displays
@@ -36,34 +37,39 @@ internal class SettingsTileLongPressHook(
             ),
         )
 
-        qsTileImplClass.getDeclaredMethod("longClick", expandableClass).run {
+        val longClickMethod = qsTileImplClass.getDeclaredMethod("longClick", expandableClass).apply {
             isAccessible = true
-            module.hook(this).intercept { chain ->
-                val receiver = chain.thisObject
-                if (receiver?.javaClass != settingsTileClass) {
-                    return@intercept chain.proceed()
-                }
+        }
+        val originalLongClickInvoker = module.getInvoker(longClickMethod)
+            .setType(Invoker.Type.ORIGIN)
+        module.hook(longClickMethod).intercept { chain ->
+            val receiver = chain.thisObject
+            if (receiver?.javaClass != settingsTileClass) {
+                return@intercept chain.proceed()
+            }
 
-                val dialogShown = runCatching {
-                    val context = contextField.get(receiver) as? Context
-                        ?: error("SettingsTile.mContext is null")
-                    val activityStarter = activityStarterField.get(receiver)
-                        ?: error("SettingsTile.mActivityStarter is null")
-                    quickToggleDialog.show(context, activityStarter)
-                }.getOrElse {
-                    logE(
-                        "Failed to show the SettingsTile long-press quick toggle dialog; " +
-                                "falling back to the original system behavior",
-                        it,
-                    )
-                    false
+            val dialogShown = runCatching {
+                val expandable = chain.args[0]
+                val context = contextField.get(receiver) as? Context
+                    ?: error("SettingsTile.mContext is null")
+                val activityStarter = activityStarterField.get(receiver)
+                    ?: error("SettingsTile.mActivityStarter is null")
+                quickToggleDialog.show(context, activityStarter) {
+                    originalLongClickInvoker.invoke(receiver, expandable)
                 }
+            }.getOrElse {
+                logE(
+                    "Failed to show the SettingsTile long-press quick toggle dialog; " +
+                            "falling back to the original system behavior",
+                    it,
+                )
+                false
+            }
 
-                if (dialogShown) {
-                    null
-                } else {
-                    chain.proceed()
-                }
+            if (dialogShown) {
+                null
+            } else {
+                chain.proceed()
             }
         }
         logD("SettingsTile long-press hook installed")

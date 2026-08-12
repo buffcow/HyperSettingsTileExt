@@ -36,12 +36,12 @@ import java.lang.reflect.Method
  * @author qingyu
  * <p>Create on 2026/08/12 16:05</p>
  */
+@SuppressLint("PrivateApi")
 internal class SystemUiQuickToggleDialog(
     classLoader: ClassLoader,
     quickToggles: List<QuickToggle>,
 ) {
 
-    @SuppressLint("PrivateApi")
     private val systemUiDialogConstructor: Constructor<*> = classLoader
         .loadClass(SYSTEM_UI_DIALOG_CLASS)
         .getConstructor(Context::class.java)
@@ -87,7 +87,11 @@ internal class SystemUiQuickToggleDialog(
      * A `false` result indicates that the caller should preserve the original system
      * long-press behavior because no toggle is available or the dialog could not be shown.
      */
-    fun show(context: Context, activityStarter: Any): Boolean {
+    fun show(
+        context: Context,
+        activityStarter: Any,
+        originalLongClickAction: () -> Unit,
+    ): Boolean {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             logError(
                 "SettingsTile long press was invoked off the main thread; " +
@@ -96,10 +100,14 @@ internal class SystemUiQuickToggleDialog(
             )
             return false
         }
-        return showSafely(context, activityStarter)
+        return showSafely(context, activityStarter, originalLongClickAction)
     }
 
-    private fun showSafely(context: Context, activityStarter: Any): Boolean {
+    private fun showSafely(
+        context: Context,
+        activityStarter: Any,
+        originalLongClickAction: () -> Unit,
+    ): Boolean {
         return runCatching {
             if (activeDialogReference?.get()?.isShowing == true) {
                 return@runCatching true
@@ -113,7 +121,13 @@ internal class SystemUiQuickToggleDialog(
             }
 
             val actionHost = createActionHost(context, activityStarter)
-            showNow(context, moduleResources, availableToggles, actionHost)
+            showNow(
+                context,
+                moduleResources,
+                availableToggles,
+                actionHost,
+                originalLongClickAction,
+            )
             true
         }.getOrElse {
             logError("Failed to create or show the SystemUI quick toggle dialog", it)
@@ -155,6 +169,7 @@ internal class SystemUiQuickToggleDialog(
         moduleResources: ModuleResources?,
         entries: List<QuickToggleEntry>,
         actionHost: QuickToggleActionHost,
+        originalLongClickAction: () -> Unit,
     ) {
         val dialog = systemUiDialogConstructor.newInstance(context) as AlertDialog
         dialog.apply {
@@ -165,6 +180,18 @@ internal class SystemUiQuickToggleDialog(
                 ),
             )
             setView(createContentView(context, moduleResources, entries, actionHost))
+            setButton(
+                DialogInterface.BUTTON_NEUTRAL,
+                moduleResources.resolveString(
+                    R.string.quick_toggle_settings,
+                    FALLBACK_SETTINGS_BUTTON_LABEL,
+                ),
+            ) { target, _ ->
+                target.dismiss()
+                runCatching(originalLongClickAction).onFailure {
+                    logError("Failed to invoke the original SettingsTile long-click action", it)
+                }
+            }
             setButton(
                 DialogInterface.BUTTON_NEGATIVE,
                 moduleResources.resolveString(
@@ -566,6 +593,7 @@ internal class SystemUiQuickToggleDialog(
             "setOnPerformCheckedChangeListener"
 
         private const val FALLBACK_DIALOG_TITLE = "Quick controls"
+        private const val FALLBACK_SETTINGS_BUTTON_LABEL = "Settings"
         private const val FALLBACK_CLOSE_BUTTON_LABEL = "Close"
         private const val FALLBACK_STATE_ON_LABEL = "On"
         private const val FALLBACK_STATE_OFF_LABEL = "Off"
