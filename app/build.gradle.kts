@@ -46,5 +46,6 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.annotation)
     compileOnly(libs.libxposed.api)
 }
