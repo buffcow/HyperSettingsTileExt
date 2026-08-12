@@ -35,6 +35,9 @@ The project targets Java 11 bytecode and uses the Gradle-managed JVM toolchain c
 - For Kotlin 1.9 and newer, use `Enum.entries` instead of `Enum.values()` when iterating, searching,
   or otherwise enumerating enum constants. Use `Enum.values()` only when an actual array is required
   for Java or API interoperability.
+- Call the top-level `logDebug()` and `logError()` functions from `Logger.kt` directly. Do not pass
+  logging functions through constructors unless a class genuinely requires a replaceable logger,
+  such as an explicit test seam or a different logging backend.
 
 ## Commit & Pull Request Guidelines
 - Follow observed Conventional Commit style: `feat:`, `fix(scope):`, `perf:`, `refactor:`, `build:`.
