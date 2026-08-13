@@ -3,6 +3,7 @@ package cn.buffcow.hyperste.hook
 import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
+import cn.buffcow.hyperste.toggle.GoogleServicesQuickToggle
 import cn.buffcow.hyperste.toggle.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.UsbOtgQuickToggle
 import cn.buffcow.hyperste.toggle.WirelessDebuggingQuickToggle
@@ -33,6 +34,9 @@ internal class SettingsTileLongPressHook(
         val quickToggleDialog = SystemUiQuickToggleDialog(
             classLoader = classLoader,
             quickToggles = listOf(
+                GoogleServicesQuickToggle(
+                    classLoader = classLoader,
+                ),
                 UsbOtgQuickToggle(
                     classLoader = classLoader,
                 ),

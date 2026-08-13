@@ -7,8 +7,10 @@
     <string name="quick_toggle_close">关闭</string>
     <string name="quick_toggle_state_on">已开启</string>
     <string name="quick_toggle_state_off">已关闭</string>
+    <string name="quick_toggle_category_services">服务</string>
     <string name="quick_toggle_category_connectivity">连接</string>
     <string name="quick_toggle_category_developer_options">开发者选项</string>
+    <string name="quick_toggle_google_services_title">Google 服务</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
     <string name="quick_toggle_usb_debugging_title">USB 调试</string>
     <string name="quick_toggle_usb_debugging_unlock">解锁后开启</string>

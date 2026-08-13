@@ -11,6 +11,10 @@ internal enum class QuickToggleCategory(
     @get:StringRes val titleRes: Int,
     val fallbackTitle: String,
 ) {
+    SERVICES(
+        titleRes = R.string.quick_toggle_category_services,
+        fallbackTitle = "Services",
+    ),
     CONNECTIVITY(
         titleRes = R.string.quick_toggle_category_connectivity,
         fallbackTitle = "Connectivity",
