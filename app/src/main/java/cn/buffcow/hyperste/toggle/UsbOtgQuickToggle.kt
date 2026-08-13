@@ -4,7 +4,6 @@ import android.content.Intent
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
-import cn.buffcow.hyperste.resource.ModuleResources
 import java.lang.reflect.Method
 
 /**
@@ -28,18 +27,17 @@ internal class UsbOtgQuickToggle(
         createBackend()
     }
 
-    override fun readState(): QuickToggleState {
+    override fun readState(host: QuickToggleHost): QuickToggleState {
         return backend?.readState() ?: QuickToggleState.UNAVAILABLE
     }
 
-    override fun setChecked(checked: Boolean) {
+    override fun setChecked(host: QuickToggleHost, checked: Boolean) {
         val activeBackend = backend ?: error("USB OTG is not supported on this device")
         activeBackend.setChecked(checked)
     }
 
-    private fun openOtgSettings(host: QuickToggleActionHost) {
-        val title = ModuleResources.from(host.context)
-            ?.getString(titleRes, fallbackTitle)
+    private fun openOtgSettings(host: QuickToggleHost) {
+        val title = host.moduleResources?.getString(titleRes, fallbackTitle)
             ?: fallbackTitle
         host.startActivity(
             Intent(Intent.ACTION_MAIN).apply {

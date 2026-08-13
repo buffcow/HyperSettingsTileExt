@@ -24,7 +24,7 @@ import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.resource.ModuleResources
 import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleAction
-import cn.buffcow.hyperste.toggle.QuickToggleActionHost
+import cn.buffcow.hyperste.toggle.QuickToggleHost
 import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
@@ -114,18 +114,18 @@ internal class SystemUiQuickToggleDialog(
             }
 
             val moduleResources = ModuleResources.from(context)
-            val availableToggles = collectAvailableToggles(moduleResources)
+            val host = createQuickToggleHost(context, activityStarter, moduleResources)
+            val availableToggles = collectAvailableToggles(host)
             if (availableToggles.isEmpty()) {
                 logDebug("No supported quick toggles are available; preserving system behavior")
                 return@runCatching false
             }
 
-            val actionHost = createActionHost(context, activityStarter)
             showNow(
                 context,
                 moduleResources,
                 availableToggles,
-                actionHost,
+                host,
                 originalLongClickAction,
             )
             true
@@ -136,11 +136,11 @@ internal class SystemUiQuickToggleDialog(
     }
 
     private fun collectAvailableToggles(
-        moduleResources: ModuleResources?,
+        host: QuickToggleHost,
     ): List<QuickToggleEntry> {
         return quickToggles.mapNotNull { quickToggle ->
             runCatching {
-                quickToggle.readState()
+                quickToggle.readState(host)
             }.onFailure {
                 logError("Failed to read initial quick toggle state: id=${quickToggle.id}", it)
             }.getOrNull()
@@ -149,12 +149,12 @@ internal class SystemUiQuickToggleDialog(
                     QuickToggleEntry(
                         quickToggle = quickToggle,
                         state = state,
-                        title = moduleResources.resolveString(
+                        title = host.moduleResources.resolveString(
                             quickToggle.titleRes,
                             quickToggle.fallbackTitle,
                         ),
                         description = quickToggle.descriptionRes?.let { resourceId ->
-                            moduleResources.resolveString(
+                            host.moduleResources.resolveString(
                                 resourceId,
                                 quickToggle.fallbackDescription.orEmpty(),
                             ).takeIf(String::isNotEmpty)
@@ -168,7 +168,7 @@ internal class SystemUiQuickToggleDialog(
         context: Context,
         moduleResources: ModuleResources?,
         entries: List<QuickToggleEntry>,
-        actionHost: QuickToggleActionHost,
+        host: QuickToggleHost,
         originalLongClickAction: () -> Unit,
     ) {
         val dialog = systemUiDialogConstructor.newInstance(context) as AlertDialog
@@ -180,7 +180,7 @@ internal class SystemUiQuickToggleDialog(
                     FALLBACK_DIALOG_TITLE,
                 ),
             )
-            setView(createContentView(dialogContext, moduleResources, entries, actionHost))
+            setView(createContentView(dialogContext, moduleResources, entries, host))
             setButton(
                 DialogInterface.BUTTON_NEUTRAL,
                 moduleResources.resolveString(
@@ -210,7 +210,7 @@ internal class SystemUiQuickToggleDialog(
         context: Context,
         moduleResources: ModuleResources?,
         entries: List<QuickToggleEntry>,
-        actionHost: QuickToggleActionHost,
+        host: QuickToggleHost,
     ): ScrollView {
         val horizontalPadding = context.dp(HORIZONTAL_PADDING_DP)
         val verticalPadding = context.dp(VERTICAL_PADDING_DP)
@@ -218,7 +218,7 @@ internal class SystemUiQuickToggleDialog(
             orientation = LinearLayout.VERTICAL
             setPadding(horizontalPadding, 0, horizontalPadding, verticalPadding)
             entries.forEach { entry ->
-                val binding = createToggleBinding(context, moduleResources, entry, actionHost)
+                val binding = createToggleBinding(context, moduleResources, entry, host)
                 addView(
                     binding.container,
                     LinearLayout.LayoutParams(
@@ -246,7 +246,7 @@ internal class SystemUiQuickToggleDialog(
         context: Context,
         moduleResources: ModuleResources?,
         entry: QuickToggleEntry,
-        actionHost: QuickToggleActionHost,
+        host: QuickToggleHost,
     ): ToggleBinding {
         val toggle = createToggle(context).apply {
             isClickable = true
@@ -314,6 +314,7 @@ internal class SystemUiQuickToggleDialog(
             titleTextView = titleTextView,
             secondaryTextView = secondaryTextView,
             quickToggle = entry.quickToggle,
+            host = host,
             title = entry.title,
             defaultSecondaryText = entry.description,
             disabledAlpha = context.resolveFloatAttribute(
@@ -338,7 +339,7 @@ internal class SystemUiQuickToggleDialog(
             bindToggleClickListener(binding)
             entry.quickToggle.longClickAction?.let { action ->
                 textContainer.setOnLongClickListener {
-                    performLongClickAction(binding, action, actionHost)
+                    performLongClickAction(binding, action, host)
                 }
             }
         }
@@ -392,13 +393,14 @@ internal class SystemUiQuickToggleDialog(
         }
         applyTextEnabledState(binding, false)
         runCatching {
-            binding.quickToggle.setChecked(requestedState)
+            binding.quickToggle.setChecked(binding.host, requestedState)
         }.onFailure {
             logError(
                 "Failed to change quick toggle state: " +
                         "id=${binding.quickToggle.id}, checked=$requestedState",
                 it,
             )
+            bindCurrentState(binding)
         }
         scheduleStateRefreshes(binding)
     }
@@ -406,10 +408,10 @@ internal class SystemUiQuickToggleDialog(
     private fun performLongClickAction(
         binding: ToggleBinding,
         action: QuickToggleAction,
-        actionHost: QuickToggleActionHost,
+        host: QuickToggleHost,
     ): Boolean {
         runCatching {
-            action.perform(actionHost)
+            action.perform(host)
         }.onSuccess {
             activeDialogReference?.get()?.dismiss()
         }.onFailure {
@@ -421,15 +423,17 @@ internal class SystemUiQuickToggleDialog(
         return true
     }
 
-    private fun createActionHost(
+    private fun createQuickToggleHost(
         hostContext: Context,
         activityStarter: Any,
-    ): QuickToggleActionHost {
+        resources: ModuleResources?,
+    ): QuickToggleHost {
         require(activityStarterClass.isInstance(activityStarter)) {
             "SettingsTile.mActivityStarter has an unexpected type: ${activityStarter.javaClass.name}"
         }
-        return object : QuickToggleActionHost {
+        return object : QuickToggleHost {
             override val context: Context = hostContext
+            override val moduleResources: ModuleResources? = resources
 
             override fun startActivity(intent: Intent) {
                 postStartActivityMethod.invoke(activityStarter, intent, NO_LAUNCH_DELAY_MS)
@@ -478,7 +482,7 @@ internal class SystemUiQuickToggleDialog(
 
     private fun bindCurrentState(binding: ToggleBinding) {
         runCatching {
-            binding.quickToggle.readState()
+            binding.quickToggle.readState(binding.host)
         }.onSuccess { state ->
             binding.readFailed = false
             applyState(binding, state)
@@ -507,7 +511,7 @@ internal class SystemUiQuickToggleDialog(
             if (state.isChecked) binding.stateOnLabel else binding.stateOffLabel
         val secondaryText = state.secondaryText ?: binding.defaultSecondaryText
         binding.container.apply {
-            isEnabled = state.isEnabled
+            isEnabled = state.isEnabled || binding.quickToggle.longClickAction != null
             contentDescription = buildString {
                 append(binding.title)
                 append(", ")
@@ -584,6 +588,7 @@ internal class SystemUiQuickToggleDialog(
         val titleTextView: TextView,
         val secondaryTextView: TextView,
         val quickToggle: QuickToggle,
+        val host: QuickToggleHost,
         val title: String,
         val defaultSecondaryText: CharSequence?,
         val disabledAlpha: Float,

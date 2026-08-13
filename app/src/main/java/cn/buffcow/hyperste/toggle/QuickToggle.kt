@@ -3,17 +3,21 @@ package cn.buffcow.hyperste.toggle
 import android.content.Context
 import android.content.Intent
 import androidx.annotation.StringRes
+import cn.buffcow.hyperste.resource.ModuleResources
 
 /**
- * Provides host-process services to a quick toggle's optional secondary action.
+ * Provides host-process services and module resources to a quick toggle.
  *
  * Activity launches are routed through SystemUI so keyguard dismissal and shade collapsing remain
  * consistent with built-in quick settings tiles.
  */
-internal interface QuickToggleActionHost {
+internal interface QuickToggleHost {
 
     /** Current SystemUI context used to resolve resources and construct actions. */
     val context: Context
+
+    /** Module resource session aligned with the current SystemUI configuration. */
+    val moduleResources: ModuleResources?
 
     /** Starts [intent] through SystemUI's activity-launch pipeline. */
     fun startActivity(intent: Intent)
@@ -28,7 +32,7 @@ internal interface QuickToggleActionHost {
 internal fun interface QuickToggleAction {
 
     /** Performs the action using services exposed by [host]. */
-    fun perform(host: QuickToggleActionHost)
+    fun perform(host: QuickToggleHost)
 }
 
 /**
@@ -66,8 +70,8 @@ internal interface QuickToggle {
      * Implementations may throw when a platform API cannot be reached. The dialog treats an
      * initial failure as unavailable and preserves the original Settings tile long-press action.
      */
-    fun readState(): QuickToggleState
+    fun readState(host: QuickToggleHost): QuickToggleState
 
     /** Requests a new checked state from the backing system feature. */
-    fun setChecked(checked: Boolean)
+    fun setChecked(host: QuickToggleHost, checked: Boolean)
 }

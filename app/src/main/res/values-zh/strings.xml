@@ -8,4 +8,8 @@
     <string name="quick_toggle_state_on">已开启</string>
     <string name="quick_toggle_state_off">已关闭</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
+    <string name="quick_toggle_wireless_debugging_title">无线调试</string>
+    <string name="quick_toggle_wireless_debugging_no_wifi">无 Wi-Fi</string>
+    <string name="quick_toggle_wireless_debugging_unlock">解锁后开启</string>
+    <string name="quick_toggle_wireless_debugging_getting_ip">正在获取 IP…</string>
 </resources>

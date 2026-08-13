@@ -8,4 +8,8 @@
     <string name="quick_toggle_state_on">On</string>
     <string name="quick_toggle_state_off">Off</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
+    <string name="quick_toggle_wireless_debugging_title">Wireless debugging</string>
+    <string name="quick_toggle_wireless_debugging_no_wifi">No Wi-Fi</string>
+    <string name="quick_toggle_wireless_debugging_unlock">Unlock to enable</string>
+    <string name="quick_toggle_wireless_debugging_getting_ip">Getting IP…</string>
 </resources>
