@@ -5,19 +5,19 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.CompoundButton
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
+import androidx.annotation.AttrRes
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
@@ -172,6 +172,7 @@ internal class SystemUiQuickToggleDialog(
         originalLongClickAction: () -> Unit,
     ) {
         val dialog = systemUiDialogConstructor.newInstance(context) as AlertDialog
+        val dialogContext = dialog.context
         dialog.apply {
             setTitle(
                 moduleResources.resolveString(
@@ -179,7 +180,7 @@ internal class SystemUiQuickToggleDialog(
                     FALLBACK_DIALOG_TITLE,
                 ),
             )
-            setView(createContentView(context, moduleResources, entries, actionHost))
+            setView(createContentView(dialogContext, moduleResources, entries, actionHost))
             setButton(
                 DialogInterface.BUTTON_NEUTRAL,
                 moduleResources.resolveString(
@@ -251,36 +252,6 @@ internal class SystemUiQuickToggleDialog(
             isClickable = true
             isFocusable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            setOnLongClickListener { true }
-            setOnTouchListener { view, event ->
-                val isLongClickRelease = event.actionMasked == MotionEvent.ACTION_UP &&
-                        event.eventTime - event.downTime >=
-                        ViewConfiguration.getLongPressTimeout()
-                if (isLongClickRelease) {
-                    MotionEvent.obtain(event).run {
-                        try {
-                            action = MotionEvent.ACTION_CANCEL
-                            view.onTouchEvent(this)
-                        } finally {
-                            recycle()
-                        }
-                    }
-                }
-                isLongClickRelease
-            }
-        }
-        val toggleTouchTarget = FrameLayout(context).apply {
-            isClickable = true
-            isLongClickable = true
-            addView(
-                toggle,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER,
-                ),
-            )
-            setOnLongClickListener { true }
         }
         val secondaryTextView = TextView(context).apply {
             alpha = DESCRIPTION_ALPHA
@@ -288,13 +259,18 @@ internal class SystemUiQuickToggleDialog(
             setPadding(0, context.dp(DESCRIPTION_TOP_PADDING_DP), 0, 0)
             visibility = View.GONE
         }
+        val titleTextView = TextView(context).apply {
+            text = entry.title
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_TEXT_SIZE_SP)
+            context.resolveColorStateList(android.R.attr.textColorPrimary)?.let {
+                setTextColor(it)
+            }
+        }
         val textContainer = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(
-                TextView(context).apply {
-                    text = entry.title
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_TEXT_SIZE_SP)
-                },
+                titleTextView,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -323,7 +299,7 @@ internal class SystemUiQuickToggleDialog(
                 ),
             )
             addView(
-                toggleTouchTarget,
+                toggle,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -335,10 +311,15 @@ internal class SystemUiQuickToggleDialog(
         return ToggleBinding(
             container = container,
             toggle = toggle,
+            titleTextView = titleTextView,
             secondaryTextView = secondaryTextView,
             quickToggle = entry.quickToggle,
             title = entry.title,
             defaultSecondaryText = entry.description,
+            disabledAlpha = context.resolveFloatAttribute(
+                android.R.attr.disabledAlpha,
+                FALLBACK_DISABLED_ALPHA,
+            ),
             stateOnLabel = moduleResources.resolveString(
                 R.string.quick_toggle_state_on,
                 FALLBACK_STATE_ON_LABEL,
@@ -354,14 +335,9 @@ internal class SystemUiQuickToggleDialog(
                     requestStateChange(binding, !toggle.isChecked)
                 }
             }
-            toggleTouchTarget.setOnClickListener {
-                if (toggle.isEnabled) {
-                    requestStateChange(binding, !toggle.isChecked)
-                }
-            }
             bindToggleClickListener(binding)
             entry.quickToggle.longClickAction?.let { action ->
-                container.setOnLongClickListener {
+                textContainer.setOnLongClickListener {
                     performLongClickAction(binding, action, actionHost)
                 }
             }
@@ -397,9 +373,9 @@ internal class SystemUiQuickToggleDialog(
                 }.getOrDefault(false)
             } == true
         if (!miuixListenerBound) {
-            binding.toggle.setOnClickListener {
+            binding.toggle.setOnCheckedChangeListener { _, isChecked ->
                 if (binding.toggle.isEnabled) {
-                    requestStateChange(binding, binding.toggle.isChecked)
+                    requestStateChange(binding, !isChecked)
                 }
             }
         }
@@ -414,6 +390,7 @@ internal class SystemUiQuickToggleDialog(
             isChecked = requestedState
             isEnabled = false
         }
+        applyTextEnabledState(binding, false)
         runCatching {
             binding.quickToggle.setChecked(requestedState)
         }.onFailure {
@@ -506,8 +483,11 @@ internal class SystemUiQuickToggleDialog(
             binding.readFailed = false
             applyState(binding, state)
         }.onFailure {
-            binding.container.isEnabled = false
-            binding.toggle.isEnabled = false
+            with(binding) {
+                container.isEnabled = false
+                toggle.isEnabled = false
+            }
+            applyTextEnabledState(binding, false)
             if (!binding.readFailed) {
                 binding.readFailed = true
                 logError(
@@ -527,7 +507,7 @@ internal class SystemUiQuickToggleDialog(
             if (state.isChecked) binding.stateOnLabel else binding.stateOffLabel
         val secondaryText = state.secondaryText ?: binding.defaultSecondaryText
         binding.container.apply {
-            isEnabled = state.isEnabled || binding.quickToggle.longClickAction != null
+            isEnabled = state.isEnabled
             contentDescription = buildString {
                 append(binding.title)
                 append(", ")
@@ -542,9 +522,24 @@ internal class SystemUiQuickToggleDialog(
             isChecked = state.isChecked
             isEnabled = state.isEnabled
         }
+        applyTextEnabledState(binding, state.isEnabled)
         binding.secondaryTextView.apply {
             text = secondaryText
             visibility = if (secondaryText.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+    }
+
+    private fun applyTextEnabledState(binding: ToggleBinding, isEnabled: Boolean) {
+        with(binding) {
+            titleTextView.apply {
+                this.isEnabled = isEnabled
+                alpha = if (isEnabled) ENABLED_ALPHA else disabledAlpha
+            }
+            secondaryTextView.apply {
+                this.isEnabled = isEnabled
+                alpha = DESCRIPTION_ALPHA *
+                        (if (isEnabled) ENABLED_ALPHA else disabledAlpha)
+            }
         }
     }
 
@@ -554,6 +549,26 @@ internal class SystemUiQuickToggleDialog(
 
     private fun Context.dp(value: Int): Int {
         return (value * resources.displayMetrics.density).toInt()
+    }
+
+    private fun Context.resolveColorStateList(@AttrRes attribute: Int): ColorStateList? {
+        return obtainStyledAttributes(intArrayOf(attribute)).run {
+            try {
+                getColorStateList(0)
+            } finally {
+                recycle()
+            }
+        }
+    }
+
+    private fun Context.resolveFloatAttribute(@AttrRes attribute: Int, fallback: Float): Float {
+        return obtainStyledAttributes(intArrayOf(attribute)).run {
+            try {
+                getFloat(0, fallback).coerceIn(0f, 1f)
+            } finally {
+                recycle()
+            }
+        }
     }
 
     private data class QuickToggleEntry(
@@ -566,10 +581,12 @@ internal class SystemUiQuickToggleDialog(
     private data class ToggleBinding(
         val container: LinearLayout,
         val toggle: CompoundButton,
+        val titleTextView: TextView,
         val secondaryTextView: TextView,
         val quickToggle: QuickToggle,
         val title: String,
         val defaultSecondaryText: CharSequence?,
+        val disabledAlpha: Float,
         val stateOnLabel: String,
         val stateOffLabel: String,
         var readFailed: Boolean = false,
@@ -603,9 +620,11 @@ internal class SystemUiQuickToggleDialog(
         private const val TOGGLE_START_MARGIN_DP = 16
         private const val TOGGLE_HEIGHT_DP = 52
         private const val DESCRIPTION_TOP_PADDING_DP = 4
-        private const val TITLE_TEXT_SIZE_SP = 16f
+        private const val TITLE_TEXT_SIZE_SP = 18f
         private const val DESCRIPTION_TEXT_SIZE_SP = 13f
+        private const val ENABLED_ALPHA = 1f
         private const val DESCRIPTION_ALPHA = 0.7f
+        private const val FALLBACK_DISABLED_ALPHA = 0.38f
         private const val NO_LAUNCH_DELAY_MS = 0
         private const val STATE_POLL_INTERVAL_MS = 2_000L
 
