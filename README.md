@@ -6,7 +6,7 @@
 
 - Android Gradle Plugin 9.3.1
 - compileSdk / targetSdk 37
-- minSdk 26
+- minSdk 34
 - Java 11 字节码
 - libxposed API 102
 - Xposed 最低 API 101
