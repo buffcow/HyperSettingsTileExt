@@ -31,6 +31,7 @@ internal class WirelessDebuggingQuickToggle(
 ) : QuickToggle {
 
     override val id: String = ID
+    override val category: QuickToggleCategory = QuickToggleCategory.DEVELOPER_OPTIONS
     override val titleRes: Int = R.string.quick_toggle_wireless_debugging_title
     override val fallbackTitle: String = FALLBACK_TITLE
     override val descriptionRes: Int? = null

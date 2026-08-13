@@ -115,8 +115,8 @@ internal class SystemUiQuickToggleDialog(
 
             val moduleResources = ModuleResources.from(context)
             val host = createQuickToggleHost(context, activityStarter, moduleResources)
-            val availableToggles = collectAvailableToggles(host)
-            if (availableToggles.isEmpty()) {
+            val availableGroups = collectAvailableGroups(host)
+            if (availableGroups.isEmpty()) {
                 logDebug("No supported quick toggles are available; preserving system behavior")
                 return@runCatching false
             }
@@ -124,7 +124,7 @@ internal class SystemUiQuickToggleDialog(
             showNow(
                 context,
                 moduleResources,
-                availableToggles,
+                availableGroups,
                 host,
                 originalLongClickAction,
             )
@@ -135,10 +135,10 @@ internal class SystemUiQuickToggleDialog(
         }
     }
 
-    private fun collectAvailableToggles(
+    private fun collectAvailableGroups(
         host: QuickToggleHost,
-    ): List<QuickToggleEntry> {
-        return quickToggles.mapNotNull { quickToggle ->
+    ): List<QuickToggleGroupEntry> {
+        val entries = quickToggles.mapNotNull { quickToggle ->
             runCatching {
                 quickToggle.readState(host)
             }.onFailure {
@@ -162,12 +162,22 @@ internal class SystemUiQuickToggleDialog(
                     )
                 }
         }
+        return entries.groupBy { it.quickToggle.category }
+            .map { (category, categoryEntries) ->
+                QuickToggleGroupEntry(
+                    title = host.moduleResources.resolveString(
+                        category.titleRes,
+                        category.fallbackTitle,
+                    ),
+                    entries = categoryEntries,
+                )
+            }
     }
 
     private fun showNow(
         context: Context,
         moduleResources: ModuleResources?,
-        entries: List<QuickToggleEntry>,
+        groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
         originalLongClickAction: () -> Unit,
     ) {
@@ -180,7 +190,7 @@ internal class SystemUiQuickToggleDialog(
                     FALLBACK_DIALOG_TITLE,
                 ),
             )
-            setView(createContentView(dialogContext, moduleResources, entries, host))
+            setView(createContentView(dialogContext, moduleResources, groups, host))
             setButton(
                 DialogInterface.BUTTON_NEUTRAL,
                 moduleResources.resolveString(
@@ -203,13 +213,17 @@ internal class SystemUiQuickToggleDialog(
             show()
         }
         activeDialogReference = WeakReference(dialog)
-        logDebug("SystemUI quick toggle dialog shown: toggleCount=${entries.size}")
+        logDebug(
+            "SystemUI quick toggle dialog shown: " +
+                    "categoryCount=${groups.size}, " +
+                    "toggleCount=${groups.sumOf { it.entries.size }}",
+        )
     }
 
     private fun createContentView(
         context: Context,
         moduleResources: ModuleResources?,
-        entries: List<QuickToggleEntry>,
+        groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
     ): ScrollView {
         val horizontalPadding = context.dp(HORIZONTAL_PADDING_DP)
@@ -217,16 +231,52 @@ internal class SystemUiQuickToggleDialog(
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(horizontalPadding, 0, horizontalPadding, verticalPadding)
-            entries.forEach { entry ->
-                val binding = createToggleBinding(context, moduleResources, entry, host)
+            groups.forEachIndexed { index, group ->
+                val groupContainer = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                }
+                val groupBinding = ToggleGroupBinding(container = groupContainer)
+                groupContainer.addView(
+                    createCategoryTextView(context, group.title),
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        if (index > 0) {
+                            topMargin = context.dp(CATEGORY_SPACING_DP)
+                        }
+                    },
+                )
+                group.entries.forEachIndexed { entryIndex, entry ->
+                    val binding = createToggleBinding(
+                        context,
+                        moduleResources,
+                        entry,
+                        host,
+                        groupBinding,
+                    )
+                    groupBinding.toggleBindings += binding
+                    groupContainer.addView(
+                        binding.container,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ).apply {
+                            if (entryIndex > 0) {
+                                topMargin = context.dp(TOGGLE_SPACING_DP)
+                            }
+                        },
+                    )
+                    schedulePeriodicStateRefresh(binding)
+                }
+                updateGroupVisibility(groupBinding)
                 addView(
-                    binding.container,
+                    groupContainer,
                     LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                     ),
                 )
-                schedulePeriodicStateRefresh(binding)
             }
         }
         return ScrollView(context).apply {
@@ -247,6 +297,7 @@ internal class SystemUiQuickToggleDialog(
         moduleResources: ModuleResources?,
         entry: QuickToggleEntry,
         host: QuickToggleHost,
+        groupBinding: ToggleGroupBinding,
     ): ToggleBinding {
         val toggle = createToggle(context).apply {
             isClickable = true
@@ -315,6 +366,7 @@ internal class SystemUiQuickToggleDialog(
             secondaryTextView = secondaryTextView,
             quickToggle = entry.quickToggle,
             host = host,
+            groupBinding = groupBinding,
             title = entry.title,
             defaultSecondaryText = entry.description,
             disabledAlpha = context.resolveFloatAttribute(
@@ -342,6 +394,22 @@ internal class SystemUiQuickToggleDialog(
                     performLongClickAction(binding, action, host)
                 }
             }
+        }
+    }
+
+    private fun createCategoryTextView(context: Context, title: CharSequence): TextView {
+        return TextView(context).apply {
+            text = title
+            minimumHeight = context.dp(CATEGORY_HEIGHT_DP)
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = false
+            isLongClickable = false
+            isFocusable = false
+            setTextAppearance(android.R.style.TextAppearance_Material_Body2)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, CATEGORY_TEXT_SIZE_SP)
+            val textColors = context.resolveColorStateList(android.R.attr.colorAccent)
+                ?: context.resolveColorStateList(android.R.attr.textColorSecondary)
+            textColors?.let { setTextColor(it) }
         }
     }
 
@@ -504,13 +572,20 @@ internal class SystemUiQuickToggleDialog(
 
     private fun applyState(binding: ToggleBinding, state: QuickToggleState) {
         binding.container.visibility = if (state.isAvailable) View.VISIBLE else View.GONE
+        updateGroupVisibility(binding.groupBinding)
         if (!state.isAvailable) {
             return
         }
-        val stateLabel =
-            if (state.isChecked) binding.stateOnLabel else binding.stateOffLabel
+        val stateLabel = if (state.isChecked) binding.stateOnLabel else binding.stateOffLabel
         val secondaryText = state.secondaryText ?: binding.defaultSecondaryText
         binding.container.apply {
+            minimumHeight = context.dp(
+                if (secondaryText.isNullOrEmpty()) {
+                    SINGLE_LINE_TOGGLE_HEIGHT_DP
+                } else {
+                    TOGGLE_HEIGHT_DP
+                },
+            )
             isEnabled = state.isEnabled || binding.quickToggle.longClickAction != null
             contentDescription = buildString {
                 append(binding.title)
@@ -533,6 +608,16 @@ internal class SystemUiQuickToggleDialog(
         }
     }
 
+    private fun updateGroupVisibility(groupBinding: ToggleGroupBinding) {
+        groupBinding.container.visibility = if (
+            groupBinding.toggleBindings.any { it.container.visibility == View.VISIBLE }
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
+    }
+
     private fun applyTextEnabledState(binding: ToggleBinding, isEnabled: Boolean) {
         with(binding) {
             titleTextView.apply {
@@ -541,8 +626,7 @@ internal class SystemUiQuickToggleDialog(
             }
             secondaryTextView.apply {
                 this.isEnabled = isEnabled
-                alpha = DESCRIPTION_ALPHA *
-                        (if (isEnabled) ENABLED_ALPHA else disabledAlpha)
+                alpha = DESCRIPTION_ALPHA * (if (isEnabled) ENABLED_ALPHA else disabledAlpha)
             }
         }
     }
@@ -582,6 +666,16 @@ internal class SystemUiQuickToggleDialog(
         val description: String?,
     )
 
+    private data class QuickToggleGroupEntry(
+        val title: String,
+        val entries: List<QuickToggleEntry>,
+    )
+
+    private class ToggleGroupBinding(
+        val container: LinearLayout,
+        val toggleBindings: MutableList<ToggleBinding> = mutableListOf(),
+    )
+
     private data class ToggleBinding(
         val container: LinearLayout,
         val toggle: CompoundButton,
@@ -589,6 +683,7 @@ internal class SystemUiQuickToggleDialog(
         val secondaryTextView: TextView,
         val quickToggle: QuickToggle,
         val host: QuickToggleHost,
+        val groupBinding: ToggleGroupBinding,
         val title: String,
         val defaultSecondaryText: CharSequence?,
         val disabledAlpha: Float,
@@ -603,16 +698,11 @@ internal class SystemUiQuickToggleDialog(
     )
 
     companion object {
-        private const val SYSTEM_UI_DIALOG_CLASS =
-            "com.android.systemui.statusbar.phone.SystemUIDialog"
-        private const val ACTIVITY_STARTER_CLASS =
-            "com.android.systemui.plugins.ActivityStarter"
-        private const val POST_START_ACTIVITY_METHOD =
-            "postStartActivityDismissingKeyguard"
-        private const val MIUIX_SLIDING_BUTTON_CLASS =
-            "miuix.slidingwidget.widget.SlidingButton"
-        private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD =
-            "setOnPerformCheckedChangeListener"
+        private const val SYSTEM_UI_DIALOG_CLASS = "com.android.systemui.statusbar.phone.SystemUIDialog"
+        private const val ACTIVITY_STARTER_CLASS = "com.android.systemui.plugins.ActivityStarter"
+        private const val POST_START_ACTIVITY_METHOD = "postStartActivityDismissingKeyguard"
+        private const val MIUIX_SLIDING_BUTTON_CLASS = "miuix.slidingwidget.widget.SlidingButton"
+        private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD = "setOnPerformCheckedChangeListener"
 
         private const val FALLBACK_DIALOG_TITLE = "Quick controls"
         private const val FALLBACK_SETTINGS_BUTTON_LABEL = "Settings"
@@ -623,8 +713,13 @@ internal class SystemUiQuickToggleDialog(
         private const val HORIZONTAL_PADDING_DP = 24
         private const val VERTICAL_PADDING_DP = 8
         private const val TOGGLE_START_MARGIN_DP = 16
+        private const val TOGGLE_SPACING_DP = 6
+        private const val SINGLE_LINE_TOGGLE_HEIGHT_DP = 40
         private const val TOGGLE_HEIGHT_DP = 52
+        private const val CATEGORY_HEIGHT_DP = 32
+        private const val CATEGORY_SPACING_DP = 8
         private const val DESCRIPTION_TOP_PADDING_DP = 4
+        private const val CATEGORY_TEXT_SIZE_SP = 14f
         private const val TITLE_TEXT_SIZE_SP = 18f
         private const val DESCRIPTION_TEXT_SIZE_SP = 13f
         private const val ENABLED_ALPHA = 1f

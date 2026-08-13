@@ -17,6 +17,7 @@ internal class UsbOtgQuickToggle(
 ) : QuickToggle {
 
     override val id: String = ID
+    override val category: QuickToggleCategory = QuickToggleCategory.CONNECTIVITY
     override val titleRes: Int = R.string.quick_toggle_usb_otg_title
     override val fallbackTitle: String = FALLBACK_TITLE
     override val descriptionRes: Int? = null

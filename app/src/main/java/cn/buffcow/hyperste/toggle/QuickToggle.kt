@@ -3,7 +3,23 @@ package cn.buffcow.hyperste.toggle
 import android.content.Context
 import android.content.Intent
 import androidx.annotation.StringRes
+import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.resource.ModuleResources
+
+/** Declares the visual group that owns a quick toggle. */
+internal enum class QuickToggleCategory(
+    @get:StringRes val titleRes: Int,
+    val fallbackTitle: String,
+) {
+    CONNECTIVITY(
+        titleRes = R.string.quick_toggle_category_connectivity,
+        fallbackTitle = "Connectivity",
+    ),
+    DEVELOPER_OPTIONS(
+        titleRes = R.string.quick_toggle_category_developer_options,
+        fallbackTitle = "Developer options",
+    ),
+}
 
 /**
  * Provides host-process services and module resources to a quick toggle.
@@ -45,6 +61,9 @@ internal interface QuickToggle {
 
     /** Stable identifier used for logging and duplicate removal. */
     val id: String
+
+    /** Visual category used to group the toggle in the dialog. */
+    val category: QuickToggleCategory
 
     /** Module string resource displayed next to the switch. */
     @get:StringRes
