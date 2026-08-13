@@ -10,6 +10,9 @@
     <string name="quick_toggle_category_connectivity">连接</string>
     <string name="quick_toggle_category_developer_options">开发者选项</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
+    <string name="quick_toggle_usb_debugging_title">USB 调试</string>
+    <string name="quick_toggle_usb_debugging_unlock">解锁后开启</string>
+    <string name="quick_toggle_usb_debugging_disabled_by_admin">已被管理员停用</string>
     <string name="quick_toggle_wireless_debugging_title">无线调试</string>
     <string name="quick_toggle_wireless_debugging_no_wifi">无 Wi-Fi</string>
     <string name="quick_toggle_wireless_debugging_unlock">解锁后开启</string>

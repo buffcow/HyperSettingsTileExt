@@ -3,6 +3,7 @@ package cn.buffcow.hyperste.hook
 import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
+import cn.buffcow.hyperste.toggle.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.UsbOtgQuickToggle
 import cn.buffcow.hyperste.toggle.WirelessDebuggingQuickToggle
 import io.github.libxposed.api.XposedInterface.Invoker
@@ -35,6 +36,7 @@ internal class SettingsTileLongPressHook(
                 UsbOtgQuickToggle(
                     classLoader = classLoader,
                 ),
+                UsbDebuggingQuickToggle(),
                 WirelessDebuggingQuickToggle(
                     classLoader = classLoader,
                 ),

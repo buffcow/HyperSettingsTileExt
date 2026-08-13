@@ -10,6 +10,9 @@
     <string name="quick_toggle_category_connectivity">Connectivity</string>
     <string name="quick_toggle_category_developer_options">Developer options</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
+    <string name="quick_toggle_usb_debugging_title">USB debugging</string>
+    <string name="quick_toggle_usb_debugging_unlock">Unlock to enable</string>
+    <string name="quick_toggle_usb_debugging_disabled_by_admin">Disabled by admin</string>
     <string name="quick_toggle_wireless_debugging_title">Wireless debugging</string>
     <string name="quick_toggle_wireless_debugging_no_wifi">No Wi-Fi</string>
     <string name="quick_toggle_wireless_debugging_unlock">Unlock to enable</string>

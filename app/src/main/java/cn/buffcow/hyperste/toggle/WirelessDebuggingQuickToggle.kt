@@ -9,9 +9,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.os.Build
 import android.os.IBinder
-import android.os.UserManager
 import android.provider.Settings
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
@@ -60,7 +58,7 @@ internal class WirelessDebuggingQuickToggle(
     }
 
     override fun readState(host: QuickToggleHost): QuickToggleState {
-        if (!isSupported || !isDeveloperAccessAllowed(host.context)) {
+        if (!isSupported || !DeveloperOptionsAccess.isAllowed(host.context)) {
             return QuickToggleState.UNAVAILABLE
         }
 
@@ -97,7 +95,7 @@ internal class WirelessDebuggingQuickToggle(
             "Wireless debugging is not supported on this device"
         }
         if (checked) {
-            check(isDeveloperAccessAllowed(host.context)) {
+            check(DeveloperOptionsAccess.isAllowed(host.context)) {
                 "Developer options are unavailable for the current user"
             }
             check(findWifiNetwork(host.context) != null) {
@@ -137,21 +135,6 @@ internal class WirelessDebuggingQuickToggle(
                 R.string.quick_toggle_wireless_debugging_getting_ip,
                 FALLBACK_GETTING_IP,
             )
-        }
-    }
-
-    private fun isDeveloperAccessAllowed(context: Context): Boolean {
-        val developmentSettingsEnabled = Settings.Global.getInt(
-            context.contentResolver,
-            DEVELOPMENT_SETTINGS_SETTING,
-            if (Build.TYPE == BUILD_TYPE_ENG) SETTING_ENABLED else SETTING_DISABLED,
-        ) != SETTING_DISABLED
-        if (!developmentSettingsEnabled) {
-            return false
-        }
-        val userManager = context.getSystemService(UserManager::class.java) ?: return false
-        return userManager.run {
-            isAdminUser && !hasUserRestriction(UserManager.DISALLOW_DEBUGGING_FEATURES)
         }
     }
 
@@ -290,9 +273,7 @@ internal class WirelessDebuggingQuickToggle(
         private const val GET_ADB_WIRELESS_PORT_METHOD = "getAdbWirelessPort"
         private const val ADB_SERVICE_NAME = "adb"
 
-        private const val DEVELOPMENT_SETTINGS_SETTING = "development_settings_enabled"
         private const val WIRELESS_DEBUGGING_SETTING = "adb_wifi_enabled"
-        private const val BUILD_TYPE_ENG = "eng"
         private const val SETTING_DISABLED = 0
         private const val SETTING_ENABLED = 1
     }
