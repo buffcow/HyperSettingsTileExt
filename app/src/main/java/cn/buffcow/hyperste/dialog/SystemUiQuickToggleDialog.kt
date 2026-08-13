@@ -391,7 +391,10 @@ internal class SystemUiQuickToggleDialog(
             bindToggleClickListener(binding)
             entry.quickToggle.longClickAction?.let { action ->
                 textContainer.setOnLongClickListener {
-                    performLongClickAction(binding, action, host)
+                    it.post {
+                        performLongClickAction(binding, action, host)
+                    }
+                    true
                 }
             }
         }
