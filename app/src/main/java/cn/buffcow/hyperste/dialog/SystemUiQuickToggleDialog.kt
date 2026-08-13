@@ -24,6 +24,7 @@ import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.resource.ModuleResources
 import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleActionUnavailableException
 import cn.buffcow.hyperste.toggle.QuickToggleHost
 import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.ref.WeakReference
@@ -486,10 +487,17 @@ internal class SystemUiQuickToggleDialog(
         }.onSuccess {
             activeDialogReference?.get()?.dismiss()
         }.onFailure {
-            logError(
-                "Failed to perform quick toggle long-click action: id=${binding.quickToggle.id}",
-                it,
-            )
+            if (it is QuickToggleActionUnavailableException) {
+                logDebug(
+                    "Quick toggle long-click action is unavailable: " +
+                            "id=${binding.quickToggle.id}, reason=${it.message}",
+                )
+            } else {
+                logError(
+                    "Failed to perform quick toggle long-click action: id=${binding.quickToggle.id}",
+                    it,
+                )
+            }
         }
         return true
     }

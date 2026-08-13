@@ -55,6 +55,9 @@ internal fun interface QuickToggleAction {
     fun perform(host: QuickToggleHost)
 }
 
+/** Indicates that an optional quick-toggle action has no destination on the current system. */
+internal class QuickToggleActionUnavailableException(message: String) : IllegalStateException(message)
+
 /**
  * Defines a boolean system feature that can be rendered by the quick-toggle dialog.
  *

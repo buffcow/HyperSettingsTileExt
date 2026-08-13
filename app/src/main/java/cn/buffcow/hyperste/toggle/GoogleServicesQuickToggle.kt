@@ -231,8 +231,9 @@ internal class GoogleServicesQuickToggle(
                 PackageManager.MATCH_DEFAULT_ONLY,
             ) == null
         ) {
-            logDebug("Google services settings activity is unavailable")
-            error("Google services settings activity is unavailable")
+            throw QuickToggleActionUnavailableException(
+                "Google services settings activity is unavailable",
+            )
         }
         host.startActivity(intent)
     }

@@ -12,6 +12,13 @@
     <string name="quick_toggle_category_developer_options">开发者选项</string>
     <string name="quick_toggle_google_services_title">Google 服务</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
+    <string name="quick_toggle_usb_tethering_title">USB 网络共享</string>
+    <string name="quick_toggle_usb_tethering_starting">正在开启…</string>
+    <string name="quick_toggle_usb_tethering_stopping">正在关闭…</string>
+    <string name="quick_toggle_usb_tethering_start_failed">无法开启</string>
+    <string name="quick_toggle_usb_tethering_stop_failed">无法关闭</string>
+    <string name="quick_toggle_usb_tethering_storage_in_use">USB 存储正在使用</string>
+    <string name="quick_toggle_usb_tethering_unavailable">暂不可用</string>
     <string name="quick_toggle_usb_debugging_title">USB 调试</string>
     <string name="quick_toggle_usb_debugging_unlock">解锁后开启</string>
     <string name="quick_toggle_usb_debugging_disabled_by_admin">已被管理员停用</string>

@@ -6,6 +6,7 @@ import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
 import cn.buffcow.hyperste.toggle.GoogleServicesQuickToggle
 import cn.buffcow.hyperste.toggle.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.UsbOtgQuickToggle
+import cn.buffcow.hyperste.toggle.UsbTetheringQuickToggle
 import cn.buffcow.hyperste.toggle.WirelessDebuggingQuickToggle
 import io.github.libxposed.api.XposedInterface.Invoker
 
@@ -38,6 +39,9 @@ internal class SettingsTileLongPressHook(
                     classLoader = classLoader,
                 ),
                 UsbOtgQuickToggle(
+                    classLoader = classLoader,
+                ),
+                UsbTetheringQuickToggle(
                     classLoader = classLoader,
                 ),
                 UsbDebuggingQuickToggle(),
