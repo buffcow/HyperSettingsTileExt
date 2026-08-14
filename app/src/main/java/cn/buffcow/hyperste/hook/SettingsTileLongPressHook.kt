@@ -3,11 +3,11 @@ package cn.buffcow.hyperste.hook
 import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
-import cn.buffcow.hyperste.toggle.GoogleServicesQuickToggle
-import cn.buffcow.hyperste.toggle.UsbDebuggingQuickToggle
-import cn.buffcow.hyperste.toggle.UsbOtgQuickToggle
-import cn.buffcow.hyperste.toggle.UsbTetheringQuickToggle
-import cn.buffcow.hyperste.toggle.WirelessDebuggingQuickToggle
+import cn.buffcow.hyperste.toggle.developer.UsbDebuggingQuickToggle
+import cn.buffcow.hyperste.toggle.developer.WirelessDebuggingQuickToggle
+import cn.buffcow.hyperste.toggle.google.GoogleServicesQuickToggle
+import cn.buffcow.hyperste.toggle.usb.UsbOtgQuickToggle
+import cn.buffcow.hyperste.toggle.usb.UsbTetheringQuickToggle
 import io.github.libxposed.api.XposedInterface.Invoker
 
 /**

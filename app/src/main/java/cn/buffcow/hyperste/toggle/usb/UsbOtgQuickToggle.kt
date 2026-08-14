@@ -1,9 +1,14 @@
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.usb
 
 import android.content.Intent
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
+import cn.buffcow.hyperste.toggle.QuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleCategory
+import cn.buffcow.hyperste.toggle.QuickToggleHost
+import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.reflect.Method
 
 /**

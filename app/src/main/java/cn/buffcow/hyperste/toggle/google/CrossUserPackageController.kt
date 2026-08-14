@@ -1,4 +1,4 @@
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.google
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager

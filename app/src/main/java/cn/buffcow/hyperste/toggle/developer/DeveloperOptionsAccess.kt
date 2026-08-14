@@ -1,4 +1,4 @@
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.developer
 
 import android.content.Context
 import android.os.Build

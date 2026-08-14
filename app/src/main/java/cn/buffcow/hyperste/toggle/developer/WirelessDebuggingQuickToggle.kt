@@ -1,6 +1,6 @@
 @file:SuppressLint("MissingPermission", "BlockedPrivateApi", "DiscouragedPrivateApi")
 
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.developer
 
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
@@ -14,6 +14,11 @@ import android.provider.Settings
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
+import cn.buffcow.hyperste.toggle.QuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleCategory
+import cn.buffcow.hyperste.toggle.QuickToggleHost
+import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.reflect.Method
 import java.net.Inet4Address
 

@@ -1,4 +1,4 @@
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.usb
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
@@ -13,6 +13,12 @@ import android.os.UserManager
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
+import cn.buffcow.hyperste.toggle.QuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleActionUnavailableException
+import cn.buffcow.hyperste.toggle.QuickToggleCategory
+import cn.buffcow.hyperste.toggle.QuickToggleHost
+import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.regex.Pattern

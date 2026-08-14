@@ -1,4 +1,4 @@
-package cn.buffcow.hyperste.toggle
+package cn.buffcow.hyperste.toggle.developer
 
 import android.app.ActivityManager
 import android.app.KeyguardManager
@@ -8,6 +8,11 @@ import android.content.Intent
 import android.provider.Settings
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
+import cn.buffcow.hyperste.toggle.QuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleAction
+import cn.buffcow.hyperste.toggle.QuickToggleCategory
+import cn.buffcow.hyperste.toggle.QuickToggleHost
+import cn.buffcow.hyperste.toggle.QuickToggleState
 
 /**
  * Provides HyperOS USB debugging state reading, switching, and settings navigation.
