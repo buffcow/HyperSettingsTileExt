@@ -70,7 +70,7 @@ USB 网络共享以系统实际报告的共享状态为准，并保留系统的�
   - `KEYSTORE_BASE64`：Keystore 文件的 Base64 编码
   - `KEYSTORE_PASSWORD`：密钥库密码 / 密钥密码
   - `KEY_ALIAS`：密钥别名
-- 构建成功后可在对应 Workflow Run 的 **Artifacts** 处下载 `app-release`。
+- 构建成功后可在对应 Workflow Run 的 **Artifacts** 处下载 `app-release`（产物有效期保留 14 天）。
 
 ## 免责声明
 
