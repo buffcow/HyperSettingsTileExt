@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CompoundButton
@@ -27,6 +28,8 @@ import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleAction
 import cn.buffcow.hyperste.toggle.QuickToggleActionUnavailableException
 import cn.buffcow.hyperste.toggle.QuickToggleHost
+import cn.buffcow.hyperste.toggle.QuickToggleRegistry
+import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import cn.buffcow.hyperste.toggle.QuickToggleState
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
@@ -41,15 +44,16 @@ import java.lang.reflect.Method
 @SuppressLint("PrivateApi")
 internal class SystemUiQuickToggleDialog(
     classLoader: ClassLoader,
-    quickToggles: List<QuickToggle>,
+    registry: QuickToggleRegistry,
+    private val selectionStore: QuickToggleSelectionStore,
 ) {
 
-    private val systemUiDialogConstructor: Constructor<*> = classLoader
-        .loadClass(SYSTEM_UI_DIALOG_CLASS)
-        .getConstructor(Context::class.java)
-        .apply {
-            isAccessible = true
-        }
+    private val dialogFactory = SystemUiDialogFactory(classLoader)
+    private val managementDialog = SystemUiQuickToggleManagementDialog(
+        dialogFactory = dialogFactory,
+        registry = registry,
+        selectionStore = selectionStore,
+    )
     private val activityStarterClass = classLoader.loadClass(ACTIVITY_STARTER_CLASS)
     private val postStartActivityMethod = activityStarterClass.getMethod(
         POST_START_ACTIVITY_METHOD,
@@ -80,14 +84,14 @@ internal class SystemUiQuickToggleDialog(
                     it.javaClass.simpleName,
         )
     }.getOrNull()
-    private val quickToggles = quickToggles.distinctBy(QuickToggle::id)
+    private val quickToggles = registry.entries
     private var activeDialogReference: WeakReference<AlertDialog>? = null
 
     /**
      * Shows the quick-toggle dialog on the main thread.
      *
      * A `false` result indicates that the caller should preserve the original system
-     * long-press behavior because no toggle is available or the dialog could not be shown.
+     * long-press behavior because the dialog could not be shown.
      */
     fun show(
         context: Context,
@@ -117,18 +121,35 @@ internal class SystemUiQuickToggleDialog(
 
             val moduleResources = ModuleResources.from(context)
             val host = createQuickToggleHost(context, activityStarter, moduleResources)
-            val availableGroups = collectAvailableGroups(host)
-            if (availableGroups.isEmpty()) {
-                logDebug("No supported quick toggles are available; preserving system behavior")
-                return@runCatching false
+            val disabledIds = runCatching {
+                selectionStore.readDisabledIds(context)
+            }.onFailure {
+                logError("Failed to read the saved quick-toggle selection", it)
+            }.getOrDefault(emptySet())
+            val enabledToggles = quickToggles.filterNot { it.id in disabledIds }
+            val availableGroups = collectAvailableGroups(host, enabledToggles)
+            val emptyMessage = when {
+                enabledToggles.isEmpty() -> moduleResources.resolveString(
+                    R.string.quick_toggle_empty_disabled,
+                    FALLBACK_EMPTY_DISABLED,
+                )
+
+                availableGroups.isEmpty() -> moduleResources.resolveString(
+                    R.string.quick_toggle_empty_unavailable,
+                    FALLBACK_EMPTY_UNAVAILABLE,
+                )
+
+                else -> null
             }
 
             showNow(
                 context,
+                activityStarter,
                 moduleResources,
                 availableGroups,
                 host,
                 originalLongClickAction,
+                emptyMessage,
             )
             true
         }.getOrElse {
@@ -139,8 +160,9 @@ internal class SystemUiQuickToggleDialog(
 
     private fun collectAvailableGroups(
         host: QuickToggleHost,
+        toggles: List<QuickToggle>,
     ): List<QuickToggleGroupEntry> {
-        val entries = quickToggles.mapNotNull { quickToggle ->
+        val entries = toggles.mapNotNull { quickToggle ->
             runCatching {
                 quickToggle.readState(host)
             }.onFailure {
@@ -178,12 +200,14 @@ internal class SystemUiQuickToggleDialog(
 
     private fun showNow(
         context: Context,
+        activityStarter: Any,
         moduleResources: ModuleResources?,
         groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
         originalLongClickAction: () -> Unit,
+        emptyMessage: CharSequence?,
     ) {
-        val dialog = systemUiDialogConstructor.newInstance(context) as AlertDialog
+        val dialog = dialogFactory.create(context)
         val dialogContext = dialog.context
         dialog.apply {
             setTitle(
@@ -192,7 +216,15 @@ internal class SystemUiQuickToggleDialog(
                     FALLBACK_DIALOG_TITLE,
                 ),
             )
-            setView(createContentView(dialogContext, moduleResources, groups, host))
+            setView(
+                createContentView(
+                    dialogContext,
+                    moduleResources,
+                    groups,
+                    host,
+                    emptyMessage,
+                ),
+            )
             setButton(
                 DialogInterface.BUTTON_NEUTRAL,
                 moduleResources.resolveString(
@@ -214,6 +246,12 @@ internal class SystemUiQuickToggleDialog(
             ) { target, _ -> target.dismiss() }
             show()
         }
+        bindSettingsButtonLongClick(
+            dialog = dialog,
+            context = context,
+            activityStarter = activityStarter,
+            originalLongClickAction = originalLongClickAction,
+        )
         activeDialogReference = WeakReference(dialog)
         logDebug(
             "SystemUI quick toggle dialog shown: " +
@@ -227,17 +265,37 @@ internal class SystemUiQuickToggleDialog(
         moduleResources: ModuleResources?,
         groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
+        emptyMessage: CharSequence?,
     ): ScrollView {
         val horizontalPadding = context.dp(HORIZONTAL_PADDING_DP)
         val verticalPadding = context.dp(VERTICAL_PADDING_DP)
+        val emptyStateTextView = createEmptyStateTextView(
+            context,
+            emptyMessage ?: moduleResources.resolveString(
+                R.string.quick_toggle_empty_unavailable,
+                FALLBACK_EMPTY_UNAVAILABLE,
+            ),
+        )
+        val contentBinding = ToggleContentBinding(emptyStateTextView)
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(horizontalPadding, 0, horizontalPadding, verticalPadding)
+            addView(
+                emptyStateTextView,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
             groups.forEachIndexed { index, group ->
                 val groupContainer = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                 }
-                val groupBinding = ToggleGroupBinding(container = groupContainer)
+                val groupBinding = ToggleGroupBinding(
+                    container = groupContainer,
+                    contentBinding = contentBinding,
+                )
+                contentBinding.groupBindings += groupBinding
                 groupContainer.addView(
                     createCategoryTextView(context, group.title),
                     LinearLayout.LayoutParams(
@@ -281,6 +339,7 @@ internal class SystemUiQuickToggleDialog(
                 )
             }
         }
+        updateEmptyStateVisibility(contentBinding)
         return ScrollView(context).apply {
             isFillViewport = true
             addView(
@@ -290,6 +349,42 @@ internal class SystemUiQuickToggleDialog(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ),
             )
+        }
+    }
+
+    private fun createEmptyStateTextView(context: Context, message: CharSequence): TextView {
+        return TextView(context).apply {
+            text = message
+            minimumHeight = context.dp(EMPTY_STATE_HEIGHT_DP)
+            gravity = Gravity.CENTER
+            alpha = DESCRIPTION_ALPHA
+            setTextAppearance(android.R.style.TextAppearance_Material_Body2)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, EMPTY_STATE_TEXT_SIZE_SP)
+            context.resolveColorStateList(android.R.attr.textColorSecondary)?.let {
+                setTextColor(it)
+            }
+        }
+    }
+
+    private fun bindSettingsButtonLongClick(
+        dialog: AlertDialog,
+        context: Context,
+        activityStarter: Any,
+        originalLongClickAction: () -> Unit,
+    ) {
+        dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setOnLongClickListener { view ->
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            view.post {
+                dialog.dismiss()
+                val returnToQuickControls = {
+                    show(context, activityStarter, originalLongClickAction)
+                    Unit
+                }
+                if (!managementDialog.show(context, returnToQuickControls)) {
+                    returnToQuickControls()
+                }
+            }
+            true
         }
     }
 
@@ -632,6 +727,17 @@ internal class SystemUiQuickToggleDialog(
         } else {
             View.GONE
         }
+        updateEmptyStateVisibility(groupBinding.contentBinding)
+    }
+
+    private fun updateEmptyStateVisibility(contentBinding: ToggleContentBinding) {
+        contentBinding.emptyStateTextView.visibility = if (
+            contentBinding.groupBindings.none { it.container.visibility == View.VISIBLE }
+        ) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
     }
 
     private fun applyTextEnabledState(binding: ToggleBinding, isEnabled: Boolean) {
@@ -687,8 +793,14 @@ internal class SystemUiQuickToggleDialog(
         val entries: List<QuickToggleEntry>,
     )
 
+    private class ToggleContentBinding(
+        val emptyStateTextView: TextView,
+        val groupBindings: MutableList<ToggleGroupBinding> = mutableListOf(),
+    )
+
     private class ToggleGroupBinding(
         val container: LinearLayout,
+        val contentBinding: ToggleContentBinding,
         val toggleBindings: MutableList<ToggleBinding> = mutableListOf(),
     )
 
@@ -714,7 +826,6 @@ internal class SystemUiQuickToggleDialog(
     )
 
     companion object {
-        private const val SYSTEM_UI_DIALOG_CLASS = "com.android.systemui.statusbar.phone.SystemUIDialog"
         private const val ACTIVITY_STARTER_CLASS = "com.android.systemui.plugins.ActivityStarter"
         private const val POST_START_ACTIVITY_METHOD = "postStartActivityDismissingKeyguard"
         private const val MIUIX_SLIDING_BUTTON_CLASS = "miuix.slidingwidget.widget.SlidingButton"
@@ -725,6 +836,8 @@ internal class SystemUiQuickToggleDialog(
         private const val FALLBACK_CLOSE_BUTTON_LABEL = "Close"
         private const val FALLBACK_STATE_ON_LABEL = "On"
         private const val FALLBACK_STATE_OFF_LABEL = "Off"
+        private const val FALLBACK_EMPTY_DISABLED = "No enabled features"
+        private const val FALLBACK_EMPTY_UNAVAILABLE = "No features available right now"
 
         private const val HORIZONTAL_PADDING_DP = 24
         private const val VERTICAL_PADDING_DP = 8
@@ -734,10 +847,12 @@ internal class SystemUiQuickToggleDialog(
         private const val TOGGLE_HEIGHT_DP = 52
         private const val CATEGORY_HEIGHT_DP = 32
         private const val CATEGORY_SPACING_DP = 8
+        private const val EMPTY_STATE_HEIGHT_DP = 72
         private const val DESCRIPTION_TOP_PADDING_DP = 4
         private const val CATEGORY_TEXT_SIZE_SP = 14f
         private const val TITLE_TEXT_SIZE_SP = 18f
         private const val DESCRIPTION_TEXT_SIZE_SP = 13f
+        private const val EMPTY_STATE_TEXT_SIZE_SP = 14f
         private const val ENABLED_ALPHA = 1f
         private const val DESCRIPTION_ALPHA = 0.7f
         private const val FALLBACK_DISABLED_ALPHA = 0.38f

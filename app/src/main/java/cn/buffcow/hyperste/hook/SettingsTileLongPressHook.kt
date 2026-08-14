@@ -3,12 +3,8 @@ package cn.buffcow.hyperste.hook
 import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
-import cn.buffcow.hyperste.toggle.developer.UsbDebuggingQuickToggle
-import cn.buffcow.hyperste.toggle.developer.WirelessDebuggingQuickToggle
-import cn.buffcow.hyperste.toggle.display.KeepScreenOnQuickToggle
-import cn.buffcow.hyperste.toggle.google.GoogleServicesQuickToggle
-import cn.buffcow.hyperste.toggle.usb.UsbOtgQuickToggle
-import cn.buffcow.hyperste.toggle.usb.UsbTetheringQuickToggle
+import cn.buffcow.hyperste.toggle.QuickToggleRegistry
+import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import io.github.libxposed.api.XposedInterface.Invoker
 
 /**
@@ -35,22 +31,8 @@ internal class SettingsTileLongPressHook(
         }
         val quickToggleDialog = SystemUiQuickToggleDialog(
             classLoader = classLoader,
-            quickToggles = listOf(
-                GoogleServicesQuickToggle(
-                    classLoader = classLoader,
-                ),
-                UsbOtgQuickToggle(
-                    classLoader = classLoader,
-                ),
-                UsbTetheringQuickToggle(
-                    classLoader = classLoader,
-                ),
-                KeepScreenOnQuickToggle(),
-                UsbDebuggingQuickToggle(),
-                WirelessDebuggingQuickToggle(
-                    classLoader = classLoader,
-                ),
-            ),
+            registry = QuickToggleRegistry(classLoader),
+            selectionStore = QuickToggleSelectionStore(),
         )
 
         val longClickMethod = qsTileImplClass.getDeclaredMethod("longClick", expandableClass).apply {
