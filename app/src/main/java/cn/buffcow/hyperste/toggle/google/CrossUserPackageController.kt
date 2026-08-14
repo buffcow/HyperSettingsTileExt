@@ -4,7 +4,8 @@ import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
-import java.lang.reflect.InvocationTargetException
+import cn.buffcow.hyperste.extension.hasPermissions
+import cn.buffcow.hyperste.extension.invokeUnwrapped
 import java.lang.reflect.Method
 
 /**
@@ -44,7 +45,7 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
             .apply {
                 isAccessible = true
             }
-            .invokePlatform(null)
+            .invokeUnwrapped(null)
             ?: error("AppGlobals.getPackageManager() returned null")
         packageManager.javaClass.run {
             isPackageAvailableMethod = getMethod(
@@ -86,17 +87,15 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
 
     /** Returns whether SystemUI can perform the complete cross-user mutation. */
     fun hasRequiredMutationPermissions(context: Context): Boolean {
-        return with(context) {
-            checkSelfPermission(CHANGE_COMPONENT_ENABLED_STATE_PERMISSION) ==
-                    PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(INTERACT_ACROSS_USERS_FULL_PERMISSION) ==
-                    PackageManager.PERMISSION_GRANTED
-        }
+        return context.hasPermissions(
+            CHANGE_COMPONENT_ENABLED_STATE_PERMISSION,
+            INTERACT_ACROSS_USERS_FULL_PERMISSION,
+        )
     }
 
     /** Returns the user currently displayed by SystemUI. */
     fun getCurrentUserId(): Int {
-        val userId = (getCurrentUserMethod.invokePlatform(null) as? Number)?.toInt()
+        val userId = (getCurrentUserMethod.invokeUnwrapped(null) as? Number)?.toInt()
             ?: error("ActivityManager.getCurrentUser() returned a non-numeric value")
         check(userId >= 0) {
             "ActivityManager.getCurrentUser() returned an invalid user ID: $userId"
@@ -111,14 +110,14 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
 
     /** Reads a system property without caching its value. */
     fun getSystemProperty(name: String): String {
-        val value = getSystemPropertyMethod.invokePlatform(null, name) as? String
+        val value = getSystemPropertyMethod.invokeUnwrapped(null, name) as? String
             ?: error("SystemProperties.get() returned a non-string value for $name")
         return value
     }
 
     /** Returns whether [packageName] is installed and available for [userId]. */
     fun isPackageAvailable(packageName: String, userId: Int): Boolean {
-        val isAvailable = isPackageAvailableMethod.invokePlatform(
+        val isAvailable = isPackageAvailableMethod.invokeUnwrapped(
             packageManager,
             packageName,
             userId,
@@ -129,7 +128,7 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
 
     /** Returns the explicit application enabled state for [packageName] and [userId]. */
     fun getApplicationEnabledSetting(packageName: String, userId: Int): Int {
-        val state = getApplicationEnabledSettingMethod.invokePlatform(
+        val state = getApplicationEnabledSettingMethod.invokeUnwrapped(
             packageManager,
             packageName,
             userId,
@@ -145,7 +144,7 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
         state: Int,
         userId: Int,
     ) {
-        setApplicationEnabledSettingMethod.invokePlatform(
+        setApplicationEnabledSettingMethod.invokeUnwrapped(
             packageManager,
             packageName,
             state,
@@ -161,15 +160,7 @@ internal class CrossUserPackageController(classLoader: ClassLoader) {
             ?: error("ActivityManager is unavailable")
         val method = forceStopPackageAsUserMethod
             ?: error("ActivityManager.forceStopPackageAsUser() is unavailable")
-        method.invokePlatform(activityManager, packageName, userId)
-    }
-
-    private fun Method.invokePlatform(receiver: Any?, vararg arguments: Any?): Any? {
-        return try {
-            invoke(receiver, *arguments)
-        } catch (error: InvocationTargetException) {
-            throw error.cause ?: error
-        }
+        method.invokeUnwrapped(activityManager, packageName, userId)
     }
 
     companion object {

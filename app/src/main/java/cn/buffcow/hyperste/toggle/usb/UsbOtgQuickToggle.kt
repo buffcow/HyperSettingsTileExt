@@ -2,6 +2,8 @@ package cn.buffcow.hyperste.toggle.usb
 
 import android.content.Intent
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.invokeUnwrapped
+import cn.buffcow.hyperste.extension.resolveString
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.toggle.QuickToggle
@@ -43,8 +45,7 @@ internal class UsbOtgQuickToggle(
     }
 
     private fun openOtgSettings(host: QuickToggleHost) {
-        val title = host.moduleResources?.getString(titleRes, fallbackTitle)
-            ?: fallbackTitle
+        val title = host.resolveString(titleRes, fallbackTitle)
         host.startActivity(
             Intent(Intent.ACTION_MAIN).apply {
                 setClassName(SETTINGS_PACKAGE, SUB_SETTINGS_ACTIVITY)
@@ -113,7 +114,7 @@ internal class UsbOtgQuickToggle(
             val miChargeClass = classLoader.loadClass(MI_CHARGE_CLASS)
             instance = miChargeClass.getDeclaredMethod(GET_INSTANCE_METHOD).run {
                 isAccessible = true
-                invoke(null) ?: error("IMiCharge.getInstance() returned null")
+                invokeUnwrapped(null) ?: error("IMiCharge.getInstance() returned null")
             }
             instance.javaClass.run {
                 getPathMethod = getDeclaredMethod(GET_PATH_METHOD, String::class.java).apply {
@@ -143,7 +144,7 @@ internal class UsbOtgQuickToggle(
 
         override fun setChecked(checked: Boolean) {
             logDebug("Setting USB OTG state through IMiCharge: checked=$checked")
-            val result = setPathMethod.invoke(
+            val result = setPathMethod.invokeUnwrapped(
                 instance,
                 TOGGLE_PATH,
                 if (checked) VALUE_ENABLED else VALUE_DISABLED,
@@ -154,7 +155,7 @@ internal class UsbOtgQuickToggle(
         }
 
         private fun readValue(path: String): String {
-            return getPathMethod.invoke(instance, path) as? String
+            return getPathMethod.invokeUnwrapped(instance, path) as? String
                 ?: error("IMiCharge.getMiChargePath() returned a non-string value for $path")
         }
     }
@@ -170,7 +171,7 @@ internal class UsbOtgQuickToggle(
             val otgSwitchClass = classLoader.loadClass(OTG_SWITCH_CLASS)
             instance = otgSwitchClass.getDeclaredMethod(GET_INSTANCE_METHOD).run {
                 isAccessible = true
-                invoke(null) ?: error("IOtgSwitch.getInstance() returned null")
+                invokeUnwrapped(null) ?: error("IOtgSwitch.getInstance() returned null")
             }
             instance.javaClass.run {
                 isSupportedMethod = getDeclaredMethod(IS_SUPPORTED_METHOD).apply {
@@ -189,12 +190,12 @@ internal class UsbOtgQuickToggle(
         }
 
         override fun isSupported(): Boolean {
-            return isSupportedMethod.invoke(instance) as? Boolean
+            return isSupportedMethod.invokeUnwrapped(instance) as? Boolean
                 ?: error("IOtgSwitch.isOtgSupported() returned a non-boolean value")
         }
 
         override fun readState(): QuickToggleState {
-            val status = getStatusMethod.invoke(instance) as? Number
+            val status = getStatusMethod.invokeUnwrapped(instance) as? Number
                 ?: error("IOtgSwitch.getOtgStatus() returned a non-numeric value")
             return QuickToggleState(
                 isAvailable = true,
@@ -204,7 +205,7 @@ internal class UsbOtgQuickToggle(
         }
 
         override fun setChecked(checked: Boolean) {
-            setEnabledMethod.invoke(instance, checked)
+            setEnabledMethod.invokeUnwrapped(instance, checked)
         }
     }
 

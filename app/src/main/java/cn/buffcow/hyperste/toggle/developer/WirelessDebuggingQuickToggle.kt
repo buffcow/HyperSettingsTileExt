@@ -12,6 +12,8 @@ import android.net.NetworkCapabilities
 import android.os.IBinder
 import android.provider.Settings
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.invokeUnwrapped
+import cn.buffcow.hyperste.extension.resolveString
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.toggle.QuickToggle
@@ -185,7 +187,7 @@ internal class WirelessDebuggingQuickToggle(
     }
 
     private fun openWirelessDebuggingSettings(host: QuickToggleHost) {
-        val title = host.moduleResources?.getString(titleRes, fallbackTitle) ?: fallbackTitle
+        val title = host.resolveString(titleRes, fallbackTitle)
         host.startActivity(
             Intent(Intent.ACTION_MAIN).apply {
                 setClassName(SETTINGS_PACKAGE, SUB_SETTINGS_ACTIVITY)
@@ -193,10 +195,6 @@ internal class WirelessDebuggingQuickToggle(
                 putExtra(EXTRA_SHOW_FRAGMENT_TITLE, title)
             },
         )
-    }
-
-    private fun QuickToggleHost.resolveString(resourceId: Int, fallback: String): String {
-        return moduleResources?.getString(resourceId, fallback) ?: fallback
     }
 
     private fun logAdbFailureOnce(message: String, throwable: Throwable) {
@@ -220,7 +218,7 @@ internal class WirelessDebuggingQuickToggle(
                 String::class.java,
             ).run {
                 isAccessible = true
-                invoke(null, ADB_SERVICE_NAME) as? IBinder
+                invokeUnwrapped(null, ADB_SERVICE_NAME) as? IBinder
                     ?: error("ServiceManager.getService(\"adb\") returned null")
             }
             val adbManagerClass = classLoader.loadClass(ADB_MANAGER_CLASS)
@@ -228,7 +226,8 @@ internal class WirelessDebuggingQuickToggle(
                 .getDeclaredMethod(AS_INTERFACE_METHOD, IBinder::class.java)
                 .run {
                     isAccessible = true
-                    invoke(null, binder) ?: error("IAdbManager.Stub.asInterface() returned null")
+                    invokeUnwrapped(null, binder)
+                        ?: error("IAdbManager.Stub.asInterface() returned null")
                 }
             adbManagerClass.run {
                 isAdbWifiSupportedMethod = getDeclaredMethod(
@@ -245,12 +244,12 @@ internal class WirelessDebuggingQuickToggle(
         }
 
         fun isAdbWifiSupported(): Boolean {
-            return isAdbWifiSupportedMethod.invoke(instance) as? Boolean
+            return isAdbWifiSupportedMethod.invokeUnwrapped(instance) as? Boolean
                 ?: error("IAdbManager.isAdbWifiSupported() returned a non-boolean value")
         }
 
         fun getAdbWirelessPort(): Int {
-            return (getAdbWirelessPortMethod.invoke(instance) as? Number)?.toInt()
+            return (getAdbWirelessPortMethod.invokeUnwrapped(instance) as? Number)?.toInt()
                 ?: error("IAdbManager.getAdbWirelessPort() returned a non-numeric value")
         }
     }

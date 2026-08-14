@@ -5,12 +5,14 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.net.TetheringManager
 import android.os.Environment
 import android.os.SystemClock
 import android.os.UserManager
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.hasPermissions
+import cn.buffcow.hyperste.extension.invokeUnwrapped
+import cn.buffcow.hyperste.extension.resolveString
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.toggle.QuickToggle
@@ -19,7 +21,6 @@ import cn.buffcow.hyperste.toggle.QuickToggleActionUnavailableException
 import cn.buffcow.hyperste.toggle.QuickToggleCategory
 import cn.buffcow.hyperste.toggle.QuickToggleHost
 import cn.buffcow.hyperste.toggle.QuickToggleState
-import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.regex.Pattern
 
@@ -112,7 +113,7 @@ internal class UsbTetheringQuickToggle(
                     StateMessage.UNAVAILABLE -> R.string.quick_toggle_usb_tethering_unavailable to
                             FALLBACK_UNAVAILABLE
                 }
-                host.moduleResources?.getString(resourceId, fallback) ?: fallback
+                host.resolveString(resourceId, fallback)
             },
         )
     }
@@ -252,7 +253,7 @@ internal class UsbTetheringQuickToggle(
             )
             restrictionHelper = restrictionHelperClass.getDeclaredMethod(GET_INSTANCE_METHOD).run {
                 isAccessible = true
-                invokePlatform(null) ?: error("RestrictionsHelperStub.getInstance() returned null")
+                invokeUnwrapped(null) ?: error("RestrictionsHelperStub.getInstance() returned null")
             }
             isRestrictionMethod = classLoader.loadClass(ENTERPRISE_RESTRICTIONS_INTERFACE_CLASS)
                 .getDeclaredMethod(IS_RESTRICTION_METHOD, String::class.java)
@@ -349,7 +350,7 @@ internal class UsbTetheringQuickToggle(
                 if (checked) {
                     startTethering(context)
                 } else {
-                    stopTetheringMethod.invokePlatform(tetheringManager, TETHERING_USB)
+                    stopTetheringMethod.invokeUnwrapped(tetheringManager, TETHERING_USB)
                 }
                 logDebug("USB tethering state requested: checked=$checked")
             } catch (failure: Throwable) {
@@ -360,7 +361,7 @@ internal class UsbTetheringQuickToggle(
 
         private fun startTethering(context: Context) {
             val requestBuilder = TetheringManager.TetheringRequest.Builder(TETHERING_USB)
-            shouldShowEntitlementUiMethod.invokePlatform(requestBuilder, true)
+            shouldShowEntitlementUiMethod.invokeUnwrapped(requestBuilder, true)
             tetheringManager.startTethering(
                 requestBuilder.build(),
                 context.mainExecutor,
@@ -432,7 +433,7 @@ internal class UsbTetheringQuickToggle(
             if (!hasRequiredPermissions(context) || ActivityManager.isUserAMonkey()) {
                 return false
             }
-            val currentUserId = (currentUserMethod.invokePlatform(null) as? Number)?.toInt()
+            val currentUserId = (currentUserMethod.invokeUnwrapped(null) as? Number)?.toInt()
                 ?: error("CrossUserUtils.getCurrentUserId() returned a non-numeric value")
             if (currentUserId != SYSTEM_USER_ID) {
                 return false
@@ -444,16 +445,14 @@ internal class UsbTetheringQuickToggle(
         }
 
         private fun hasRequiredPermissions(context: Context): Boolean {
-            return with(context) {
-                checkSelfPermission(TETHER_PRIVILEGED_PERMISSION) ==
-                        PackageManager.PERMISSION_GRANTED &&
-                        checkSelfPermission(NETWORK_SETTINGS_PERMISSION) ==
-                        PackageManager.PERMISSION_GRANTED
-            }
+            return context.hasPermissions(
+                TETHER_PRIVILEGED_PERMISSION,
+                NETWORK_SETTINGS_PERMISSION,
+            )
         }
 
         private fun isRestrictedByEnterprise(context: Context): Boolean {
-            val staticRestricted = staticRestrictionMethod.invokePlatform(
+            val staticRestricted = staticRestrictionMethod.invokeUnwrapped(
                 null,
                 context,
                 ENTERPRISE_TETHERING_RESTRICTION,
@@ -461,7 +460,7 @@ internal class UsbTetheringQuickToggle(
             if (staticRestricted) {
                 return true
             }
-            return isRestrictionMethod.invokePlatform(
+            return isRestrictionMethod.invokeUnwrapped(
                 restrictionHelper,
                 ENTERPRISE_TETHERING_RESTRICTION,
             ) as? Boolean ?: error("IRestrictionsHelper.isRestriction() returned a non-boolean value")
@@ -520,7 +519,7 @@ internal class UsbTetheringQuickToggle(
             return snapshot.available
                 .filter { interfaceName -> interfaceName.matchesAny(usbRegexs) }
                 .any { interfaceName ->
-                    val error = (getLastError.invokePlatform(
+                    val error = (getLastError.invokeUnwrapped(
                         tetheringManager,
                         interfaceName,
                     ) as? Number)?.toInt()
@@ -530,7 +529,7 @@ internal class UsbTetheringQuickToggle(
         }
 
         private fun getStringArray(method: Method): Array<String> {
-            val value = method.invokePlatform(tetheringManager)
+            val value = method.invokeUnwrapped(tetheringManager)
             @Suppress("UNCHECKED_CAST")
             return value as? Array<String>
                 ?: error("${method.name}() returned a non-string-array value")
@@ -548,13 +547,6 @@ internal class UsbTetheringQuickToggle(
             }.getOrNull()
         }
 
-        private fun Method.invokePlatform(receiver: Any?, vararg arguments: Any?): Any? {
-            return try {
-                invoke(receiver, *arguments)
-            } catch (error: InvocationTargetException) {
-                throw error.cause ?: error
-            }
-        }
     }
 
     companion object {

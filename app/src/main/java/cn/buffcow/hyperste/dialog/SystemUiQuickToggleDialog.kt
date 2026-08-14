@@ -19,6 +19,7 @@ import android.widget.Switch
 import android.widget.TextView
 import androidx.annotation.AttrRes
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.invokeUnwrapped
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.resource.ModuleResources
@@ -424,7 +425,7 @@ internal class SystemUiQuickToggleDialog(
             }
             ?.let { reflection ->
                 runCatching {
-                    reflection.setOnPerformCheckedChangeListenerMethod.invoke(
+                    reflection.setOnPerformCheckedChangeListenerMethod.invokeUnwrapped(
                         binding.toggle,
                         CompoundButton.OnCheckedChangeListener { _, isChecked ->
                             logDebug(
@@ -515,7 +516,11 @@ internal class SystemUiQuickToggleDialog(
             override val moduleResources: ModuleResources? = resources
 
             override fun startActivity(intent: Intent) {
-                postStartActivityMethod.invoke(activityStarter, intent, NO_LAUNCH_DELAY_MS)
+                postStartActivityMethod.invokeUnwrapped(
+                    activityStarter,
+                    intent,
+                    NO_LAUNCH_DELAY_MS,
+                )
             }
         }
     }

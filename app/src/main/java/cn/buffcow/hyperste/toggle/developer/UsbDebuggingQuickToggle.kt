@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.resolveString
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleAction
@@ -120,10 +121,6 @@ internal class UsbDebuggingQuickToggle : QuickToggle {
                 putExtra(EXTRA_FRAGMENT_ARG_KEY, USB_DEBUGGING_PREFERENCE_KEY)
             },
         )
-    }
-
-    private fun QuickToggleHost.resolveString(resourceId: Int, fallback: String): String {
-        return moduleResources?.getString(resourceId, fallback) ?: fallback
     }
 
     companion object {
