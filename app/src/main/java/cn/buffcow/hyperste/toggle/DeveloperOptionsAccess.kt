@@ -6,7 +6,7 @@ import android.os.UserManager
 import android.provider.Settings
 
 /**
- * 统一判断开发者选项相关快捷开关的访问条件
+ * Centralizes access checks for developer-options quick toggles.
  *
  * @author qingyu
  * <p>Create on 2026/08/13 11:44</p>

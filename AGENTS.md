@@ -83,6 +83,6 @@ The project targets Java 11 bytecode and uses the Gradle-managed JVM toolchain c
 - User’s current code is the source of truth and takes precedence by default.
 - If a new instruction conflicts with existing code, modify only the necessary parts to satisfy the instruction while preserving all non-conflicting user changes.
 - Do not overwrite or revert user modifications unintentionally; avoid full-file rewrites unless explicitly requested.
-- Must provide detailed Chinese KDoc/Javadoc documentation for all public APIs in interface class.
+- Must provide detailed English KDoc/Javadoc documentation for all public APIs in interface class.
 - When touching the same Kotlin/Java object or View **multiple** times in one local block, use Kotlin scope functions such as
   `apply`, `run`, or `with` by default when setting or reading multiple properties.

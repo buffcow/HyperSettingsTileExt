@@ -18,7 +18,7 @@ import java.lang.reflect.Method
 import java.util.regex.Pattern
 
 /**
- * 提供 HyperOS USB 网络共享状态读取、异步切换及设置页跳转
+ * Provides HyperOS USB tethering state reading, asynchronous switching, and settings navigation.
  *
  * @author qingyu
  * <p>Create on 2026/08/13 16:03</p>

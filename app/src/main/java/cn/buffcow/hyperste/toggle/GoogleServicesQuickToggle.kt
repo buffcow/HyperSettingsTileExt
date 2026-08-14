@@ -9,7 +9,7 @@ import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 
 /**
- * 提供 HyperOS Google 服务状态读取、跨用户切换及原生设置页跳转
+ * Provides HyperOS Google services state reading, cross-user switching, and native settings navigation.
  *
  * @author qingyu
  * <p>Create on 2026/08/13 14:43</p>

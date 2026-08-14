@@ -10,7 +10,7 @@ import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 
 /**
- * 提供 HyperOS USB 调试状态读取、切换及设置页跳转
+ * Provides HyperOS USB debugging state reading, switching, and settings navigation.
  *
  * @author qingyu
  * <p>Create on 2026/08/13 11:44</p>

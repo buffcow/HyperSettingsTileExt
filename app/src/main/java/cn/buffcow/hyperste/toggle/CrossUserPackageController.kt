@@ -8,7 +8,7 @@ import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 
 /**
- * 封装 HyperOS 跨用户应用启停、系统属性读取及进程停止能力
+ * Encapsulates HyperOS cross-user application state changes, system-property reads, and process stopping.
  *
  * @author qingyu
  * <p>Create on 2026/08/13 14:43</p>
