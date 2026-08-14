@@ -17,6 +17,7 @@ A Xposed module for Xiaomi HyperOS that extends the Control Center Settings tile
 | 服务    | Google 服务 | 启用或停用 Google 核心服务及相关系统组件 | Google 服务设置    | 仅受支持且核心组件完整的国内版 HyperOS         |
 | 连接    | USB OTG   | 切换 USB OTG               | OTG 设置         | 设备和 HyperOS 私有接口支持时显示           |
 | 连接    | USB 网络共享  | 启动或停止 USB 网络共享           | 网络共享设置         | 仅主用户可用；开启需要连接 USB，且不能受用户或企业策略限制 |
+| 显示    | 保持亮屏      | 阻止屏幕自动熄灭                 | 无              | 需要设备已解锁，且不能受设备管理策略限制            |
 | 开发者选项 | USB 调试    | 切换 USB 调试                | 开发者选项中的 USB 调试 | 需要开启开发者选项；部分状态要求设备已解锁           |
 | 开发者选项 | 无线调试      | 切换无线调试，并在开启后显示连接地址       | 无线调试设置         | 需要开发者选项及设备支持；开启需要 Wi-Fi 和设备解锁   |
 

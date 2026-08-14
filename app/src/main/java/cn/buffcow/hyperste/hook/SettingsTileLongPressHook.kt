@@ -5,6 +5,7 @@ import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
 import cn.buffcow.hyperste.toggle.developer.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.developer.WirelessDebuggingQuickToggle
+import cn.buffcow.hyperste.toggle.display.KeepScreenOnQuickToggle
 import cn.buffcow.hyperste.toggle.google.GoogleServicesQuickToggle
 import cn.buffcow.hyperste.toggle.usb.UsbOtgQuickToggle
 import cn.buffcow.hyperste.toggle.usb.UsbTetheringQuickToggle
@@ -44,6 +45,7 @@ internal class SettingsTileLongPressHook(
                 UsbTetheringQuickToggle(
                     classLoader = classLoader,
                 ),
+                KeepScreenOnQuickToggle(),
                 UsbDebuggingQuickToggle(),
                 WirelessDebuggingQuickToggle(
                     classLoader = classLoader,
