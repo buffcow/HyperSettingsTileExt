@@ -47,13 +47,30 @@ USB 网络共享以系统实际报告的共享状态为准，并保留系统的�
 
 ## 构建
 
+### 本地构建
+
 使用仓库内的 Gradle Wrapper：
 
 ```powershell
+# 构建 Debug 包
 .\gradlew.bat assembleDebug
+
+# 构建 Release 包（需配置签名属性）
+.\gradlew.bat assembleRelease -PandroidStoreFile="<path-to-keystore>" -PandroidStorePassword="<password>" -PandroidKeyAlias="<alias>"
 ```
 
-构建产物位于 `app/build/outputs/apk/debug/`。
+构建产物位于 `app/build/outputs/apk/`。
+
+### CI 自动构建
+
+项目配置了 GitHub Actions 工作流：
+
+- 推送至 `dev` 分支或手动触发工作流时，会自动触发 Release APK 构建。
+- 在 GitHub Actions 中签名需在仓库配置以下 Repository secrets：
+  - `KEYSTORE_BASE64`：Keystore 文件的 Base64 编码
+  - `KEYSTORE_PASSWORD`：密钥库密码 / 密钥密码
+  - `KEY_ALIAS`：密钥别名
+- 构建成功后可在对应 Workflow Run 的 **Artifacts** 处下载 `app-release`。
 
 ## 免责声明
 
