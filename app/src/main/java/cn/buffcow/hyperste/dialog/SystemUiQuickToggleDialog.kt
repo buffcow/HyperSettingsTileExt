@@ -27,12 +27,12 @@ import cn.buffcow.hyperste.extension.invokeUnwrapped
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.resource.ModuleResources
+import cn.buffcow.hyperste.toggle.ModuleSettingsStore
 import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleAction
 import cn.buffcow.hyperste.toggle.QuickToggleActionUnavailableException
 import cn.buffcow.hyperste.toggle.QuickToggleHost
 import cn.buffcow.hyperste.toggle.QuickToggleRegistry
-import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import cn.buffcow.hyperste.toggle.QuickToggleState
 import cn.buffcow.hyperste.toggle.systemui.SystemUiTileController
 import java.lang.ref.WeakReference
@@ -49,14 +49,15 @@ import java.lang.reflect.Method
 internal class SystemUiQuickToggleDialog(
     private val classLoader: ClassLoader,
     registry: QuickToggleRegistry,
-    private val selectionStore: QuickToggleSelectionStore,
+    private val settingsStore: ModuleSettingsStore,
 ) {
 
     private val dialogFactory = SystemUiDialogFactory(classLoader)
-    private val managementDialog = SystemUiQuickToggleManagementDialog(
+    private val moduleSettingsDialog = SystemUiModuleSettingsDialog(
         dialogFactory = dialogFactory,
         registry = registry,
-        selectionStore = selectionStore,
+        settingsStore = settingsStore,
+        toggleFactory = ::createToggle,
     )
     private val activityStarterClass = classLoader.loadClass(ACTIVITY_STARTER_CLASS)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -138,11 +139,16 @@ internal class SystemUiQuickToggleDialog(
                 resources = moduleResources,
             )
             val disabledIds = runCatching {
-                selectionStore.readDisabledIds(context)
+                settingsStore.readDisabledIds(context)
             }.onFailure {
                 logError("Failed to read the saved quick-toggle selection", it)
             }.getOrDefault(emptySet())
             val enabledToggles = quickToggles.filterNot { it.id in disabledIds }
+            val collapseAfterSwitching = runCatching {
+                settingsStore.readCollapseAfterSwitching(context)
+            }.onFailure {
+                logError("Failed to read the collapse-after-switching setting", it)
+            }.getOrDefault(false)
             val availableGroups = collectAvailableGroups(host, enabledToggles)
             val emptyMessage = when {
                 enabledToggles.isEmpty() -> moduleResources.resolveString(
@@ -167,6 +173,7 @@ internal class SystemUiQuickToggleDialog(
                 host,
                 originalLongClickAction,
                 emptyMessage,
+                collapseAfterSwitching,
             )
             true
         }.getOrElse {
@@ -224,6 +231,7 @@ internal class SystemUiQuickToggleDialog(
         host: QuickToggleHost,
         originalLongClickAction: () -> Unit,
         emptyMessage: CharSequence?,
+        collapseAfterSwitching: Boolean,
     ) {
         val dialog = dialogFactory.create(context)
         val dialogContext = dialog.context
@@ -241,6 +249,10 @@ internal class SystemUiQuickToggleDialog(
                     groups,
                     host,
                     emptyMessage,
+                    collapseAfterSwitching,
+                    collapsePanels = {
+                        collapseSystemUiPanels(activityStarter)
+                    },
                 ),
             )
             setButton(
@@ -295,6 +307,8 @@ internal class SystemUiQuickToggleDialog(
         groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
         emptyMessage: CharSequence?,
+        collapseAfterSwitching: Boolean,
+        collapsePanels: () -> Unit,
     ): ScrollView {
         val horizontalPadding = context.dp(HORIZONTAL_PADDING_DP)
         val verticalPadding = context.dp(VERTICAL_PADDING_DP)
@@ -343,6 +357,8 @@ internal class SystemUiQuickToggleDialog(
                         entry,
                         host,
                         groupBinding,
+                        collapseAfterSwitching,
+                        collapsePanels,
                     )
                     groupBinding.toggleBindings += binding
                     groupContainer.addView(
@@ -410,7 +426,7 @@ internal class SystemUiQuickToggleDialog(
                     show(context, activityStarter, qsHost, originalLongClickAction)
                     Unit
                 }
-                if (!managementDialog.show(context, returnToQuickControls)) {
+                if (!moduleSettingsDialog.show(context, returnToQuickControls)) {
                     returnToQuickControls()
                 }
             }
@@ -425,6 +441,8 @@ internal class SystemUiQuickToggleDialog(
         entry: QuickToggleEntry,
         host: QuickToggleHost,
         groupBinding: ToggleGroupBinding,
+        collapseAfterSwitching: Boolean,
+        collapsePanels: () -> Unit,
     ): ToggleBinding {
         val toggle = createToggle(context).apply {
             isClickable = true
@@ -508,6 +526,8 @@ internal class SystemUiQuickToggleDialog(
                 R.string.quick_toggle_state_off,
                 FALLBACK_STATE_OFF_LABEL,
             ),
+            collapseAfterSwitching = collapseAfterSwitching,
+            collapsePanels = collapsePanels,
         ).also { binding ->
             applyState(binding, entry.state)
             container.setOnClickListener {
@@ -590,7 +610,7 @@ internal class SystemUiQuickToggleDialog(
             isEnabled = false
         }
         applyTextEnabledState(binding, false)
-        runCatching {
+        val stateChangeResult = runCatching {
             binding.quickToggle.setChecked(binding.host, requestedState)
         }.onFailure {
             logError(
@@ -601,6 +621,9 @@ internal class SystemUiQuickToggleDialog(
             bindCurrentState(binding)
         }
         scheduleStateRefreshes(binding)
+        if (stateChangeResult.isSuccess && binding.collapseAfterSwitching) {
+            binding.collapsePanels()
+        }
     }
 
     private fun performLongClickAction(
@@ -678,7 +701,7 @@ internal class SystemUiQuickToggleDialog(
         }.onFailure {
             logCollapseMonitorFailureOnce(
                 "SystemUI control-center and shade-collapse callbacks are unavailable; " +
-                        "activity launches will dismiss the quick-toggle dialog immediately",
+                        "the quick-toggle dialog will use immediate dismissal fallbacks",
                 it,
             )
         }.getOrDefault(false)
@@ -689,13 +712,7 @@ internal class SystemUiQuickToggleDialog(
         action: Runnable,
         isActive: () -> Boolean,
     ): Boolean {
-        val controllerLazy = runCatching {
-            activityStarter.javaClass.findField(CONTROL_CENTER_CONTROLLER_FIELD)
-        }.getOrNull()?.get(activityStarter) ?: return false
-        val controller = resolveLazyValue(
-            lazyValue = controllerLazy,
-            description = "ControlCenterActivityStarter.controlCenterController",
-        )
+        val controller = resolveControlCenterController(activityStarter) ?: return false
         val isUseControlCenterMethod = controller.javaClass.findMethod(
             IS_USE_CONTROL_CENTER_METHOD,
             0,
@@ -757,6 +774,48 @@ internal class SystemUiQuickToggleDialog(
     }
 
     private fun registerShadePostCollapseAction(activityStarter: Any, action: Runnable) {
+        val shadeController = resolveShadeController(activityStarter)
+        val addPostCollapseActionMethod = shadeController.javaClass.findMethod(
+            ADD_POST_COLLAPSE_ACTION_METHOD,
+            Runnable::class.java,
+        )
+        addPostCollapseActionMethod.invokeUnwrapped(shadeController, action)
+    }
+
+    private fun collapseSystemUiPanels(activityStarter: Any) {
+        runCatching {
+            val controlCenterController = resolveControlCenterController(activityStarter)
+            val isUsingControlCenter = controlCenterController?.javaClass
+                ?.findMethod(IS_USE_CONTROL_CENTER_METHOD, 0)
+                ?.invokeUnwrapped(controlCenterController) == true
+            if (isUsingControlCenter) {
+                activityStarter.javaClass.findMethod(COLLAPSE_CONTROL_CENTER_METHOD, 0)
+                    .invokeUnwrapped(activityStarter)
+            } else {
+                val shadeController = resolveShadeController(activityStarter)
+                shadeController.javaClass.findMethod(
+                    ANIMATE_COLLAPSE_SHADE_METHOD,
+                    Int::class.javaPrimitiveType!!,
+                ).invokeUnwrapped(shadeController, COLLAPSE_SHADE_FLAGS)
+            }
+        }.onSuccess {
+            activeDialogReference?.get()?.takeIf { it.isShowing }?.dismiss()
+        }.onFailure {
+            logError("Failed to collapse SystemUI after a quick-toggle state change", it)
+        }
+    }
+
+    private fun resolveControlCenterController(activityStarter: Any): Any? {
+        val controllerLazy = runCatching {
+            activityStarter.javaClass.findField(CONTROL_CENTER_CONTROLLER_FIELD)
+        }.getOrNull()?.get(activityStarter) ?: return null
+        return resolveLazyValue(
+            lazyValue = controllerLazy,
+            description = "ControlCenterActivityStarter.controlCenterController",
+        )
+    }
+
+    private fun resolveShadeController(activityStarter: Any): Any {
         val actualActivityStarter = unwrapActualActivityStarter(activityStarter)
         val activityStarterInternal = actualActivityStarter.javaClass
             .findField(ACTIVITY_STARTER_INTERNAL_FIELD)
@@ -766,15 +825,10 @@ internal class SystemUiQuickToggleDialog(
             .findField(SHADE_CONTROLLER_LAZY_FIELD)
             .get(activityStarterInternal)
             ?: error("ActivityStarterInternal.shadeControllerLazy is null")
-        val shadeController = resolveLazyValue(
+        return resolveLazyValue(
             lazyValue = shadeControllerLazy,
             description = "ActivityStarterInternal.shadeControllerLazy",
         )
-        val addPostCollapseActionMethod = shadeController.javaClass.findMethod(
-            ADD_POST_COLLAPSE_ACTION_METHOD,
-            Runnable::class.java,
-        )
-        addPostCollapseActionMethod.invokeUnwrapped(shadeController, action)
     }
 
     private fun unwrapActualActivityStarter(activityStarter: Any): Any {
@@ -1020,6 +1074,8 @@ internal class SystemUiQuickToggleDialog(
         val disabledAlpha: Float,
         val stateOnLabel: String,
         val stateOffLabel: String,
+        val collapseAfterSwitching: Boolean,
+        val collapsePanels: () -> Unit,
         var readFailed: Boolean = false,
     )
 
@@ -1038,7 +1094,9 @@ internal class SystemUiQuickToggleDialog(
         private const val DAGGER_LAZY_GET_METHOD = "get"
         private const val IS_USE_CONTROL_CENTER_METHOD = "isUseControlCenter"
         private const val IS_COLLAPSED_METHOD = "isCollapsed"
+        private const val COLLAPSE_CONTROL_CENTER_METHOD = "collapseControlCenter"
         private const val ADD_POST_COLLAPSE_ACTION_METHOD = "addPostCollapseAction"
+        private const val ANIMATE_COLLAPSE_SHADE_METHOD = "animateCollapseShade"
         private const val MIUIX_SLIDING_BUTTON_CLASS = "miuix.slidingwidget.widget.SlidingButton"
         private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD = "setOnPerformCheckedChangeListener"
 
@@ -1068,6 +1126,7 @@ internal class SystemUiQuickToggleDialog(
         private const val DESCRIPTION_ALPHA = 0.7f
         private const val FALLBACK_DISABLED_ALPHA = 0.38f
         private const val NO_LAUNCH_DELAY_MS = 0
+        private const val COLLAPSE_SHADE_FLAGS = 0
         private const val ACTIVITY_STARTER_UNWRAP_LIMIT = 4
         private const val COLLAPSED_CONFIRMATION_SAMPLE_COUNT = 4
         private const val COLLAPSE_POLL_INTERVAL_MS = 50L

@@ -3,8 +3,8 @@ package cn.buffcow.hyperste.hook
 import android.annotation.SuppressLint
 import android.content.Context
 import cn.buffcow.hyperste.dialog.SystemUiQuickToggleDialog
+import cn.buffcow.hyperste.toggle.ModuleSettingsStore
 import cn.buffcow.hyperste.toggle.QuickToggleRegistry
-import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import io.github.libxposed.api.XposedInterface.Invoker
 
 /**
@@ -35,7 +35,7 @@ internal class SettingsTileLongPressHook(
         val quickToggleDialog = SystemUiQuickToggleDialog(
             classLoader = classLoader,
             registry = QuickToggleRegistry(classLoader),
-            selectionStore = QuickToggleSelectionStore(),
+            settingsStore = ModuleSettingsStore(),
         )
 
         val longClickMethod = qsTileImplClass.getDeclaredMethod("longClick", expandableClass).apply {

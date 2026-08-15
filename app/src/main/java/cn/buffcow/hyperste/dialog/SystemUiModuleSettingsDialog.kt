@@ -8,6 +8,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.CheckBox
+import android.widget.CompoundButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -16,26 +17,27 @@ import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
 import cn.buffcow.hyperste.resource.ModuleResources
+import cn.buffcow.hyperste.toggle.ModuleSettingsStore
 import cn.buffcow.hyperste.toggle.QuickToggle
 import cn.buffcow.hyperste.toggle.QuickToggleRegistry
-import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import java.lang.ref.WeakReference
 
 /**
- * Manages which registered quick toggles are displayed without changing their system state.
+ * Edits module behavior and the quick toggles displayed without changing their system state.
  *
  * @author qingyu
  * <p>Create on 2026/08/14 17:50</p>
  */
-internal class SystemUiQuickToggleManagementDialog(
+internal class SystemUiModuleSettingsDialog(
     private val dialogFactory: SystemUiDialogFactory,
     private val registry: QuickToggleRegistry,
-    private val selectionStore: QuickToggleSelectionStore,
+    private val settingsStore: ModuleSettingsStore,
+    private val toggleFactory: (Context) -> CompoundButton,
 ) {
 
     private var activeDialogReference: WeakReference<AlertDialog>? = null
 
-    /** Shows the staged feature-selection dialog and invokes [onReturn] when it closes. */
+    /** Shows the staged module-settings dialog and invokes [onReturn] when it closes. */
     fun show(context: Context, onReturn: () -> Unit): Boolean {
         if (activeDialogReference?.get()?.isShowing == true) {
             return true
@@ -44,7 +46,7 @@ internal class SystemUiQuickToggleManagementDialog(
             showNow(context, onReturn)
             true
         }.getOrElse {
-            logError("Failed to create or show the quick-toggle management dialog", it)
+            logError("Failed to create or show the module settings dialog", it)
             false
         }
     }
@@ -52,13 +54,22 @@ internal class SystemUiQuickToggleManagementDialog(
     private fun showNow(context: Context, onReturn: () -> Unit) {
         val moduleResources = ModuleResources.from(context)
         val disabledIds = runCatching {
-            selectionStore.readDisabledIds(context)
+            settingsStore.readDisabledIds(context)
         }.onFailure {
             logError("Failed to read the saved quick-toggle selection", it)
         }.getOrDefault(emptySet())
+        val collapseAfterSwitching = runCatching {
+            settingsStore.readCollapseAfterSwitching(context)
+        }.onFailure {
+            logError("Failed to read the collapse-after-switching setting", it)
+        }.getOrDefault(false)
         val bindings = mutableListOf<SelectionBinding>()
         val dialog = dialogFactory.create(context)
         val dialogContext = dialog.context
+        val collapseAfterSwitchingToggle = toggleFactory(dialogContext).apply {
+            isChecked = collapseAfterSwitching
+            isFocusable = false
+        }
         var returnInvoked = false
         val returnToQuickControls = {
             if (!returnInvoked) {
@@ -74,7 +85,15 @@ internal class SystemUiQuickToggleManagementDialog(
                     FALLBACK_TITLE,
                 ),
             )
-            setView(createContentView(dialogContext, moduleResources, disabledIds, bindings))
+            setView(
+                createContentView(
+                    context = dialogContext,
+                    moduleResources = moduleResources,
+                    disabledIds = disabledIds,
+                    collapseAfterSwitchingToggle = collapseAfterSwitchingToggle,
+                    bindings = bindings,
+                ),
+            )
             val nullListener: DialogInterface.OnClickListener? = null
             setButton(
                 DialogInterface.BUTTON_POSITIVE,
@@ -97,7 +116,7 @@ internal class SystemUiQuickToggleManagementDialog(
             }
             show()
             getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
-                saveSelection(context, bindings)
+                saveSettings(context, bindings, collapseAfterSwitchingToggle.isChecked)
                     .onSuccess {
                         dismiss()
                     }
@@ -107,13 +126,14 @@ internal class SystemUiQuickToggleManagementDialog(
             }
         }
         activeDialogReference = WeakReference(dialog)
-        logDebug("Quick-toggle management dialog shown: toggleCount=${bindings.size}")
+        logDebug("Module settings dialog shown: toggleCount=${bindings.size}")
     }
 
     private fun createContentView(
         context: Context,
         moduleResources: ModuleResources?,
         disabledIds: Set<String>,
+        collapseAfterSwitchingToggle: CompoundButton,
         bindings: MutableList<SelectionBinding>,
     ): ScrollView {
         val content = LinearLayout(context).apply {
@@ -124,9 +144,23 @@ internal class SystemUiQuickToggleManagementDialog(
                 context.dp(HORIZONTAL_PADDING_DP),
                 context.dp(VERTICAL_PADDING_DP),
             )
+            addView(
+                createCollapseAfterSwitchingBinding(
+                    context = context,
+                    title = moduleResources.resolveString(
+                        R.string.quick_toggle_collapse_after_switching,
+                        FALLBACK_COLLAPSE_AFTER_SWITCHING,
+                    ),
+                    toggle = collapseAfterSwitchingToggle,
+                ),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
             registry.entries.groupBy(QuickToggle::category)
                 .entries
-                .forEachIndexed { groupIndex, (category, toggles) ->
+                .forEach { (category, toggles) ->
                     addView(
                         createCategoryTextView(
                             context,
@@ -139,9 +173,7 @@ internal class SystemUiQuickToggleManagementDialog(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.WRAP_CONTENT,
                         ).apply {
-                            if (groupIndex > 0) {
-                                topMargin = context.dp(CATEGORY_SPACING_DP)
-                            }
+                            topMargin = context.dp(CATEGORY_SPACING_DP)
                         },
                     )
                     toggles.forEach { toggle ->
@@ -177,6 +209,40 @@ internal class SystemUiQuickToggleManagementDialog(
         }
     }
 
+    private fun createCollapseAfterSwitchingBinding(
+        context: Context,
+        title: CharSequence,
+        toggle: CompoundButton,
+    ): LinearLayout {
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = context.dp(ITEM_HEIGHT_DP)
+            isClickable = true
+            isFocusable = true
+            addView(
+                createItemTextView(context, title),
+                LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f,
+                ),
+            )
+            addView(
+                toggle,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    marginStart = context.dp(CONTROL_START_MARGIN_DP)
+                },
+            )
+            setOnClickListener {
+                toggle.toggle()
+            }
+        }
+    }
+
     private fun createSelectionBinding(
         context: Context,
         title: CharSequence,
@@ -195,14 +261,7 @@ internal class SystemUiQuickToggleManagementDialog(
             isClickable = true
             isFocusable = true
             addView(
-                TextView(context).apply {
-                    text = title
-                    setTextAppearance(android.R.style.TextAppearance_Material_Body1)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ITEM_TEXT_SIZE_SP)
-                    context.resolveColorStateList(android.R.attr.textColorPrimary)?.let {
-                        setTextColor(it)
-                    }
-                },
+                createItemTextView(context, title),
                 LinearLayout.LayoutParams(
                     0,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -215,7 +274,7 @@ internal class SystemUiQuickToggleManagementDialog(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply {
-                    marginStart = context.dp(CHECKBOX_START_MARGIN_DP)
+                    marginStart = context.dp(CONTROL_START_MARGIN_DP)
                 },
             )
             setOnClickListener {
@@ -223,6 +282,17 @@ internal class SystemUiQuickToggleManagementDialog(
             }
         }
         return SelectionBinding(container, checkBox, toggle)
+    }
+
+    private fun createItemTextView(context: Context, title: CharSequence): TextView {
+        return TextView(context).apply {
+            text = title
+            setTextAppearance(android.R.style.TextAppearance_Material_Body1)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ITEM_TEXT_SIZE_SP)
+            context.resolveColorStateList(android.R.attr.textColorPrimary)?.let {
+                setTextColor(it)
+            }
+        }
     }
 
     private fun createCategoryTextView(context: Context, title: CharSequence): TextView {
@@ -241,9 +311,10 @@ internal class SystemUiQuickToggleManagementDialog(
         }
     }
 
-    private fun saveSelection(
+    private fun saveSettings(
         context: Context,
         bindings: List<SelectionBinding>,
+        collapseAfterSwitching: Boolean,
     ): Result<Unit> {
         val knownIds = bindings.mapTo(mutableSetOf()) { it.toggle.id }
         val disabledIds = bindings
@@ -251,11 +322,20 @@ internal class SystemUiQuickToggleManagementDialog(
             .filterNot { it.checkBox.isChecked }
             .mapTo(mutableSetOf()) { it.toggle.id }
         return runCatching {
-            selectionStore.writeKnownDisabledIds(context, knownIds, disabledIds)
+            settingsStore.writeSettings(
+                context = context,
+                knownIds = knownIds,
+                disabledKnownIds = disabledIds,
+                collapseAfterSwitching = collapseAfterSwitching,
+            )
         }.onSuccess {
-            logDebug("Quick-toggle selection saved: disabledCount=${disabledIds.size}")
+            logDebug(
+                "Module settings saved: " +
+                        "disabledCount=${disabledIds.size}, " +
+                        "collapseAfterSwitching=$collapseAfterSwitching",
+            )
         }.onFailure {
-            logError("Failed to save the quick-toggle selection", it)
+            logError("Failed to save the module settings", it)
         }
     }
 
@@ -284,7 +364,8 @@ internal class SystemUiQuickToggleManagementDialog(
     )
 
     companion object {
-        private const val FALLBACK_TITLE = "Manage features"
+        private const val FALLBACK_TITLE = "Module settings"
+        private const val FALLBACK_COLLAPSE_AFTER_SWITCHING = "Collapse shade after switching"
         private const val FALLBACK_SAVE = "Save"
         private const val FALLBACK_CANCEL = "Cancel"
 
@@ -293,7 +374,7 @@ internal class SystemUiQuickToggleManagementDialog(
         private const val CATEGORY_HEIGHT_DP = 32
         private const val CATEGORY_SPACING_DP = 8
         private const val ITEM_HEIGHT_DP = 45
-        private const val CHECKBOX_START_MARGIN_DP = 16
+        private const val CONTROL_START_MARGIN_DP = 16
         private const val CATEGORY_TEXT_SIZE_SP = 14f
         private const val ITEM_TEXT_SIZE_SP = 16f
     }
