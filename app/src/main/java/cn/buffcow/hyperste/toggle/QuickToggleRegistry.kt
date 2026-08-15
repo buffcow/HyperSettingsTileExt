@@ -7,6 +7,7 @@ import cn.buffcow.hyperste.toggle.display.KeepScreenOnQuickToggle
 import cn.buffcow.hyperste.toggle.display.MotionSicknessReliefQuickToggle
 import cn.buffcow.hyperste.toggle.google.GoogleServicesQuickToggle
 import cn.buffcow.hyperste.toggle.mishare.MiShareQuickToggle
+import cn.buffcow.hyperste.toggle.privacy.IncognitoQuickToggle
 import cn.buffcow.hyperste.toggle.usb.UsbOtgQuickToggle
 import cn.buffcow.hyperste.toggle.usb.UsbTetheringQuickToggle
 
@@ -22,6 +23,7 @@ internal class QuickToggleRegistry(classLoader: ClassLoader) {
         GoogleServicesQuickToggle(
             classLoader = classLoader,
         ),
+        IncognitoQuickToggle(),
         MiShareQuickToggle(),
         UsbOtgQuickToggle(
             classLoader = classLoader,

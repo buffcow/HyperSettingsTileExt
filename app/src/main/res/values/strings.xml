@@ -18,6 +18,10 @@
     <string name="quick_toggle_category_display">Display</string>
     <string name="quick_toggle_category_developer_options">Developer options</string>
     <string name="quick_toggle_google_services_title">Google services</string>
+    <string name="quick_toggle_incognito_title">Incognito</string>
+    <string name="quick_toggle_incognito_turning_on">Turning on…</string>
+    <string name="quick_toggle_incognito_turning_off">Turning off…</string>
+    <string name="quick_toggle_incognito_failed">Failed</string>
     <string name="quick_toggle_mi_share_title">Mi Share</string>
     <string name="quick_toggle_mi_share_turning_on">Turning on…</string>
     <string name="quick_toggle_mi_share_turning_off">Turning off…</string>
