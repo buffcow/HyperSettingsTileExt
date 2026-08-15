@@ -38,6 +38,7 @@ internal class SystemUiTileController(
         TileReflection(classLoader, qsHost)
     }
     private val activeCustomSessions = mutableMapOf<String, CustomTileSession>()
+    private val queuedCustomRequests = mutableMapOf<String, CustomTileClickRequest>()
     private var reflectionFailureLogged = false
 
     /**
@@ -70,10 +71,11 @@ internal class SystemUiTileController(
      *
      * [onClickDispatched] runs after the SystemUI tile accepts the click call, not after the backing
      * feature changes state. [onFailure] is reserved for controller, reflection, creation, or
-     * readiness failures. Once a session has been created, [onFinished] runs after listeners and
-     * any owned temporary tile are cleaned up. Validation failures that occur before session
-     * creation are thrown to the caller. Only one session per custom component may be active at a
-     * time.
+     * readiness failures. [onFinished] runs when ownership of that click ends: normally after
+     * listeners and any owned temporary tile are cleaned up, or immediately before a ready session
+     * is transferred to a rapid follow-up click. A follow-up that arrives after destruction begins
+     * is queued until cleanup finishes. Validation failures that occur before session creation are
+     * thrown to the caller.
      */
     fun requestCustomTileClick(
         target: CustomTileTarget,
@@ -82,8 +84,32 @@ internal class SystemUiTileController(
         onFinished: () -> Unit,
     ) {
         checkMainThread()
-        check(target.spec !in activeCustomSessions) {
-            "A SystemUI custom tile click is already in progress: spec=${target.spec}"
+        activeCustomSessions[target.spec]?.let { activeSession ->
+            val request = CustomTileClickRequest(
+                target = target,
+                onClickDispatched = onClickDispatched,
+                onFailure = onFailure,
+                onFinished = onFinished,
+            )
+            when {
+                activeSession.cleanupScheduled && !activeSession.cleanupStarted -> {
+                    reuseSession(reflectionResult.getOrThrow(), activeSession, request)
+                    return
+                }
+
+                activeSession.cleanupStarted -> {
+                    check(target.spec !in queuedCustomRequests) {
+                        "A SystemUI custom tile click is already queued: spec=${target.spec}"
+                    }
+                    queuedCustomRequests[target.spec] = request
+                    logDebug("SystemUI custom tile click queued until cleanup: spec=${target.spec}")
+                    return
+                }
+
+                else -> error(
+                    "A SystemUI custom tile click is already in progress: spec=${target.spec}",
+                )
+            }
         }
 
         val reflection = reflectionResult.getOrThrow()
@@ -124,17 +150,24 @@ internal class SystemUiTileController(
     }
 
     /**
-     * Signals that the feature owning [target] observed its requested state.
+     * Signals that the feature owning [target] observed [checked] as its requested state.
      *
-     * The controller still keeps the tile alive for a short grace period so an asynchronously
-     * queued `TileService` click can finish before the listening token and temporary instance are
-     * released. The result is `true` only when an active, already-dispatched session accepted the
-     * completion signal.
+     * The completion signal is accepted only after SystemUI's own tile state agrees, ensuring a
+     * rapid follow-up click cannot make a `TileService` toggle from stale state. The controller then
+     * keeps the tile alive for a short grace period before releasing the listening token and any
+     * temporary instance. The result is `true` only when an active, already-dispatched session
+     * accepted the signal.
      */
-    fun finishCustomTileObservation(target: CustomTileTarget): Boolean {
+    fun finishCustomTileObservation(target: CustomTileTarget, checked: Boolean): Boolean {
         checkMainThread()
         val session = activeCustomSessions[target.spec] ?: return false
         if (!session.clickDispatched) {
+            return false
+        }
+        val reflection = reflectionResult.getOrThrow()
+        reflection.refreshState(session.tile)
+        val expectedTileState = if (checked) TILE_STATE_ACTIVE else TILE_STATE_INACTIVE
+        if (reflection.getTileState(session.tile) != expectedTileState) {
             return false
         }
         if (session.cleanupScheduled) {
@@ -142,11 +175,32 @@ internal class SystemUiTileController(
         }
         session.cleanupScheduled = true
         session.observationTimeout?.let { callback -> mainHandler.removeCallbacks(callback) }
-        mainHandler.postDelayed(
-            { cleanupSession(reflectionResult.getOrThrow(), session) },
-            COMPLETION_GRACE_PERIOD_MS,
-        )
+        val completionGraceCallback = Runnable {
+            cleanupSession(reflectionResult.getOrThrow(), session)
+        }
+        session.completionGraceCallback = completionGraceCallback
+        mainHandler.postDelayed(completionGraceCallback, COMPLETION_GRACE_PERIOD_MS)
         return true
+    }
+
+    private fun reuseSession(
+        reflection: TileReflection,
+        session: CustomTileSession,
+        request: CustomTileClickRequest,
+    ) {
+        with(session) {
+            completionGraceCallback?.let { callback -> mainHandler.removeCallbacks(callback) }
+            completionGraceCallback = null
+            cleanupScheduled = false
+            failureReported = false
+            finishSessionCallback(this)
+            onClickDispatched = request.onClickDispatched
+            onFailure = request.onFailure
+            onFinished = request.onFinished
+            clickDispatched = false
+        }
+        dispatchClick(reflection, session)
+        logDebug("Reused an active SystemUI custom tile session: spec=${session.target.spec}")
     }
 
     private fun pollUntilReady(reflection: TileReflection, session: CustomTileSession) {
@@ -204,6 +258,7 @@ internal class SystemUiTileController(
         session.failureReported = true
         session.readinessPoll?.let { callback -> mainHandler.removeCallbacks(callback) }
         session.observationTimeout?.let { callback -> mainHandler.removeCallbacks(callback) }
+        session.completionGraceCallback?.let { callback -> mainHandler.removeCallbacks(callback) }
         runCatching {
             session.onFailure(failure)
         }.onFailure { callbackFailure ->
@@ -219,6 +274,7 @@ internal class SystemUiTileController(
         session.cleanupStarted = true
         session.readinessPoll?.let { callback -> mainHandler.removeCallbacks(callback) }
         session.observationTimeout?.let { callback -> mainHandler.removeCallbacks(callback) }
+        session.completionGraceCallback?.let { callback -> mainHandler.removeCallbacks(callback) }
         runCatching {
             reflection.setListening(session.tile, session.listeningOwner, false)
         }.onFailure {
@@ -258,13 +314,40 @@ internal class SystemUiTileController(
 
     private fun finishCleanup(session: CustomTileSession) {
         if (activeCustomSessions.remove(session.target.spec, session)) {
-            runCatching(session.onFinished).onFailure {
-                logError("Failed to finish a SystemUI custom tile controller callback", it)
-            }
+            finishSessionCallback(session)
             logDebug(
                 "SystemUI custom tile click session finished: " +
                         "spec=${session.target.spec}, temporary=${session.ownsTile}",
             )
+            queuedCustomRequests.remove(session.target.spec)?.let { request ->
+                runCatching {
+                    requestCustomTileClick(
+                        target = request.target,
+                        onClickDispatched = request.onClickDispatched,
+                        onFailure = request.onFailure,
+                        onFinished = request.onFinished,
+                    )
+                }.onFailure { failure ->
+                    runCatching { request.onFailure(failure) }.onFailure { callbackFailure ->
+                        logError(
+                            "Failed to report a queued SystemUI custom tile controller failure",
+                            callbackFailure,
+                        )
+                    }
+                    runCatching(request.onFinished).onFailure { callbackFailure ->
+                        logError(
+                            "Failed to finish a queued SystemUI custom tile controller callback",
+                            callbackFailure,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun finishSessionCallback(session: CustomTileSession) {
+        runCatching(session.onFinished).onFailure {
+            logError("Failed to finish a SystemUI custom tile controller callback", it)
         }
     }
 
@@ -377,16 +460,24 @@ internal class SystemUiTileController(
         val ownsTile: Boolean,
         val tileUserId: Int?,
         val wasMarkedAdded: Boolean,
-        val onClickDispatched: () -> Unit,
-        val onFailure: (Throwable) -> Unit,
-        val onFinished: () -> Unit,
+        var onClickDispatched: () -> Unit,
+        var onFailure: (Throwable) -> Unit,
+        var onFinished: () -> Unit,
         val listeningOwner: Any = Any(),
         var readinessPoll: Runnable? = null,
         var observationTimeout: Runnable? = null,
+        var completionGraceCallback: Runnable? = null,
         var clickDispatched: Boolean = false,
         var cleanupScheduled: Boolean = false,
         var cleanupStarted: Boolean = false,
         var failureReported: Boolean = false,
+    )
+
+    private data class CustomTileClickRequest(
+        val target: CustomTileTarget,
+        val onClickDispatched: () -> Unit,
+        val onFailure: (Throwable) -> Unit,
+        val onFinished: () -> Unit,
     )
 
     companion object {
@@ -405,6 +496,8 @@ internal class SystemUiTileController(
         private const val ON_CUSTOM_TILE_REMOVED_METHOD = "onCustomTileRemoved"
         private const val TILE_PREFERENCES_NAME = "tiles_prefs"
         private const val TILE_STATE_UNAVAILABLE = 0
+        private const val TILE_STATE_INACTIVE = 1
+        private const val TILE_STATE_ACTIVE = 2
         private const val READINESS_TIMEOUT_MS = 5_000L
         private const val READINESS_POLL_INTERVAL_MS = 100L
         private const val OBSERVATION_TIMEOUT_MS = 5_000L

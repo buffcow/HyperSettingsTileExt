@@ -128,7 +128,12 @@ internal class MiShareQuickToggle : QuickToggle {
         ) {
             return
         }
-        if (host.systemUiTileController.finishCustomTileObservation(TILE_TARGET)) {
+        if (
+            host.systemUiTileController.finishCustomTileObservation(
+                target = TILE_TARGET,
+                checked = request.targetState,
+            )
+        ) {
             pendingRequest = null
             logDebug("Mi Share state changed: checked=${request.targetState}")
         }
