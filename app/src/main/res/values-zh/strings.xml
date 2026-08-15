@@ -14,6 +14,7 @@
     <string name="quick_toggle_state_off">已关闭</string>
     <string name="quick_toggle_category_services">服务</string>
     <string name="quick_toggle_category_connectivity">连接</string>
+    <string name="quick_toggle_category_battery">电池</string>
     <string name="quick_toggle_category_display">显示</string>
     <string name="quick_toggle_category_developer_options">开发者选项</string>
     <string name="quick_toggle_google_services_title">Google 服务</string>
@@ -29,6 +30,8 @@
     <string name="quick_toggle_usb_tethering_stop_failed">无法关闭</string>
     <string name="quick_toggle_usb_tethering_storage_in_use">USB 存储正在使用</string>
     <string name="quick_toggle_usb_tethering_unavailable">暂不可用</string>
+    <string name="quick_toggle_wireless_reverse_charging_title">无线反向充电</string>
+    <string name="quick_toggle_wireless_reverse_charging_remove_case">请先取下手机保护壳</string>
     <string name="quick_toggle_keep_screen_on_title">保持亮屏</string>
     <string name="quick_toggle_motion_sickness_relief_title">晕车缓解</string>
     <string name="quick_toggle_usb_debugging_title">USB 调试</string>

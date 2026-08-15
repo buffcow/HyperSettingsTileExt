@@ -14,6 +14,7 @@
     <string name="quick_toggle_state_off">Off</string>
     <string name="quick_toggle_category_services">Services</string>
     <string name="quick_toggle_category_connectivity">Connectivity</string>
+    <string name="quick_toggle_category_battery">Battery</string>
     <string name="quick_toggle_category_display">Display</string>
     <string name="quick_toggle_category_developer_options">Developer options</string>
     <string name="quick_toggle_google_services_title">Google services</string>
@@ -29,6 +30,8 @@
     <string name="quick_toggle_usb_tethering_stop_failed">Couldn’t stop</string>
     <string name="quick_toggle_usb_tethering_storage_in_use">USB storage in use</string>
     <string name="quick_toggle_usb_tethering_unavailable">Unavailable</string>
+    <string name="quick_toggle_wireless_reverse_charging_title">Reverse wireless charging</string>
+    <string name="quick_toggle_wireless_reverse_charging_remove_case">Remove the phone case first</string>
     <string name="quick_toggle_keep_screen_on_title">Keep screen on</string>
     <string name="quick_toggle_motion_sickness_relief_title">Motion sickness relief</string>
     <string name="quick_toggle_usb_debugging_title">USB debugging</string>

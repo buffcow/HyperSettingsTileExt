@@ -20,6 +20,10 @@ internal enum class QuickToggleCategory(
         titleRes = R.string.quick_toggle_category_connectivity,
         fallbackTitle = "Connectivity",
     ),
+    BATTERY(
+        titleRes = R.string.quick_toggle_category_battery,
+        fallbackTitle = "Battery",
+    ),
     DISPLAY(
         titleRes = R.string.quick_toggle_category_display,
         fallbackTitle = "Display",

@@ -1,5 +1,6 @@
 package cn.buffcow.hyperste.toggle
 
+import cn.buffcow.hyperste.toggle.charging.WirelessReverseChargingQuickToggle
 import cn.buffcow.hyperste.toggle.developer.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.developer.WirelessDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.display.KeepScreenOnQuickToggle
@@ -30,6 +31,9 @@ internal class QuickToggleRegistry(classLoader: ClassLoader) {
         ),
         KeepScreenOnQuickToggle(),
         MotionSicknessReliefQuickToggle(),
+        WirelessReverseChargingQuickToggle(
+            classLoader = classLoader,
+        ),
         UsbDebuggingQuickToggle(),
         WirelessDebuggingQuickToggle(
             classLoader = classLoader,
