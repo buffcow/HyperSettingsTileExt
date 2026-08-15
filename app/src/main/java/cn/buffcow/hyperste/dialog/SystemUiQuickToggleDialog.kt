@@ -20,6 +20,7 @@ import android.widget.Switch
 import android.widget.TextView
 import androidx.annotation.AttrRes
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.findMethod
 import cn.buffcow.hyperste.extension.invokeUnwrapped
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
@@ -87,8 +88,12 @@ internal class SystemUiQuickToggleDialog(
     }.getOrNull()
     private val quickToggles = registry.entries
     private var activeDialogReference: WeakReference<AlertDialog>? = null
+    private var activeDialogCollapseActionRegistered = false
     private var systemUiTileControllerHost: Any? = null
     private var systemUiTileController: SystemUiTileController? = null
+    private var shadeCollapseDispatcherActivityStarter: Any? = null
+    private var shadeCollapseDispatcher: ShadeCollapseDispatcher? = null
+    private var shadeCollapseDispatcherFailureLogged = false
 
     /**
      * Shows the quick-toggle dialog on the main thread.
@@ -265,7 +270,14 @@ internal class SystemUiQuickToggleDialog(
             qsHost = qsHost,
             originalLongClickAction = originalLongClickAction,
         )
-        activeDialogReference = WeakReference(dialog)
+        val dialogReference = WeakReference(dialog)
+        activeDialogReference = dialogReference
+        activeDialogCollapseActionRegistered = registerPostCollapseAction(
+            activityStarter = activityStarter,
+            action = {
+                dialogReference.get()?.takeIf { it.isShowing }?.dismiss()
+            },
+        )
         logDebug(
             "SystemUI quick toggle dialog shown: " +
                     "categoryCount=${groups.size}, " +
@@ -628,13 +640,77 @@ internal class SystemUiQuickToggleDialog(
                 getSystemUiTileController(qsHost, hostContext)
 
             override fun startActivity(intent: Intent) {
+                val activeDialog = activeDialogReference?.get()
                 postStartActivityMethod.invokeUnwrapped(
                     activityStarter,
                     intent,
                     NO_LAUNCH_DELAY_MS,
                 )
+                if (!activeDialogCollapseActionRegistered) {
+                    activeDialog?.takeIf { it.isShowing }?.dismiss()
+                }
             }
         }
+    }
+
+    private fun registerPostCollapseAction(activityStarter: Any, action: Runnable): Boolean {
+        val dispatcher = getShadeCollapseDispatcher(activityStarter) ?: return false
+        return runCatching {
+            dispatcher.addPostCollapseAction(action)
+            true
+        }.onFailure {
+            logShadeCollapseDispatcherFailureOnce(
+                "Failed to register the quick-toggle dialog post-collapse action",
+                it,
+            )
+        }.getOrDefault(false)
+    }
+
+    private fun getShadeCollapseDispatcher(activityStarter: Any): ShadeCollapseDispatcher? {
+        if (shadeCollapseDispatcherActivityStarter !== activityStarter) {
+            shadeCollapseDispatcherActivityStarter = activityStarter
+            shadeCollapseDispatcher = runCatching {
+                createShadeCollapseDispatcher(activityStarter)
+            }.onFailure {
+                logShadeCollapseDispatcherFailureOnce(
+                    "SystemUI shade-collapse callbacks are unavailable; " +
+                            "activity launches will dismiss the quick-toggle dialog immediately",
+                    it,
+                )
+            }.getOrNull()
+        }
+        return shadeCollapseDispatcher
+    }
+
+    private fun createShadeCollapseDispatcher(activityStarter: Any): ShadeCollapseDispatcher {
+        val activityStarterInternal = activityStarter.javaClass
+            .getField(ACTIVITY_STARTER_INTERNAL_FIELD)
+            .get(activityStarter)
+            ?: error("ActivityStarterImpl.activityStarterInternal is null")
+        val shadeControllerLazy = activityStarterInternal.javaClass
+            .getField(SHADE_CONTROLLER_LAZY_FIELD)
+            .get(activityStarterInternal)
+            ?: error("ActivityStarterInternal.shadeControllerLazy is null")
+        val shadeController = shadeControllerLazy.javaClass
+            .findMethod(DAGGER_LAZY_GET_METHOD, 0)
+            .invokeUnwrapped(shadeControllerLazy)
+            ?: error("ActivityStarterInternal.shadeControllerLazy.get() returned null")
+        val addPostCollapseActionMethod = shadeController.javaClass.findMethod(
+            ADD_POST_COLLAPSE_ACTION_METHOD,
+            Runnable::class.java,
+        )
+        return ShadeCollapseDispatcher(
+            shadeController = shadeController,
+            addPostCollapseActionMethod = addPostCollapseActionMethod,
+        )
+    }
+
+    private fun logShadeCollapseDispatcherFailureOnce(message: String, throwable: Throwable) {
+        if (shadeCollapseDispatcherFailureLogged) {
+            return
+        }
+        shadeCollapseDispatcherFailureLogged = true
+        logError(message, throwable)
     }
 
     private fun getSystemUiTileController(qsHost: Any, context: Context): SystemUiTileController {
@@ -854,9 +930,23 @@ internal class SystemUiQuickToggleDialog(
         val setOnPerformCheckedChangeListenerMethod: Method,
     )
 
+    private data class ShadeCollapseDispatcher(
+        val shadeController: Any,
+        val addPostCollapseActionMethod: Method,
+    ) {
+
+        fun addPostCollapseAction(action: Runnable) {
+            addPostCollapseActionMethod.invokeUnwrapped(shadeController, action)
+        }
+    }
+
     companion object {
         private const val ACTIVITY_STARTER_CLASS = "com.android.systemui.plugins.ActivityStarter"
         private const val POST_START_ACTIVITY_METHOD = "postStartActivityDismissingKeyguard"
+        private const val ACTIVITY_STARTER_INTERNAL_FIELD = "activityStarterInternal"
+        private const val SHADE_CONTROLLER_LAZY_FIELD = "shadeControllerLazy"
+        private const val DAGGER_LAZY_GET_METHOD = "get"
+        private const val ADD_POST_COLLAPSE_ACTION_METHOD = "addPostCollapseAction"
         private const val MIUIX_SLIDING_BUTTON_CLASS = "miuix.slidingwidget.widget.SlidingButton"
         private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD = "setOnPerformCheckedChangeListener"
 
