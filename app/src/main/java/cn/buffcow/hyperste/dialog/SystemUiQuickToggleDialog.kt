@@ -7,6 +7,7 @@ import android.content.DialogInterface
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
@@ -20,6 +21,7 @@ import android.widget.Switch
 import android.widget.TextView
 import androidx.annotation.AttrRes
 import cn.buffcow.hyperste.R
+import cn.buffcow.hyperste.extension.findField
 import cn.buffcow.hyperste.extension.findMethod
 import cn.buffcow.hyperste.extension.invokeUnwrapped
 import cn.buffcow.hyperste.logDebug
@@ -57,6 +59,7 @@ internal class SystemUiQuickToggleDialog(
         selectionStore = selectionStore,
     )
     private val activityStarterClass = classLoader.loadClass(ACTIVITY_STARTER_CLASS)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val postStartActivityMethod = activityStarterClass.getMethod(
         POST_START_ACTIVITY_METHOD,
         Intent::class.java,
@@ -91,9 +94,7 @@ internal class SystemUiQuickToggleDialog(
     private var activeDialogCollapseActionRegistered = false
     private var systemUiTileControllerHost: Any? = null
     private var systemUiTileController: SystemUiTileController? = null
-    private var shadeCollapseDispatcherActivityStarter: Any? = null
-    private var shadeCollapseDispatcher: ShadeCollapseDispatcher? = null
-    private var shadeCollapseDispatcherFailureLogged = false
+    private var collapseMonitorFailureLogged = false
 
     /**
      * Shows the quick-toggle dialog on the main thread.
@@ -276,6 +277,9 @@ internal class SystemUiQuickToggleDialog(
             activityStarter = activityStarter,
             action = {
                 dialogReference.get()?.takeIf { it.isShowing }?.dismiss()
+            },
+            isActive = {
+                dialogReference.get()?.isShowing == true
             },
         )
         logDebug(
@@ -646,70 +650,164 @@ internal class SystemUiQuickToggleDialog(
                     intent,
                     NO_LAUNCH_DELAY_MS,
                 )
-                if (!activeDialogCollapseActionRegistered) {
-                    activeDialog?.takeIf { it.isShowing }?.dismiss()
-                }
+                // Dismiss immediately to prevent the shade collapse callback from being too slow.
+                // if (!activeDialogCollapseActionRegistered) {
+                activeDialog?.takeIf { it.isShowing }?.dismiss()
+                // }
             }
         }
     }
 
-    private fun registerPostCollapseAction(activityStarter: Any, action: Runnable): Boolean {
-        val dispatcher = getShadeCollapseDispatcher(activityStarter) ?: return false
+    private fun registerPostCollapseAction(
+        activityStarter: Any,
+        action: Runnable,
+        isActive: () -> Boolean,
+    ): Boolean {
         return runCatching {
-            dispatcher.addPostCollapseAction(action)
+            if (
+                registerControlCenterCollapseMonitor(
+                    activityStarter = activityStarter,
+                    action = action,
+                    isActive = isActive,
+                )
+            ) {
+                return@runCatching true
+            }
+            registerShadePostCollapseAction(activityStarter, action)
             true
         }.onFailure {
-            logShadeCollapseDispatcherFailureOnce(
-                "Failed to register the quick-toggle dialog post-collapse action",
+            logCollapseMonitorFailureOnce(
+                "SystemUI control-center and shade-collapse callbacks are unavailable; " +
+                        "activity launches will dismiss the quick-toggle dialog immediately",
                 it,
             )
         }.getOrDefault(false)
     }
 
-    private fun getShadeCollapseDispatcher(activityStarter: Any): ShadeCollapseDispatcher? {
-        if (shadeCollapseDispatcherActivityStarter !== activityStarter) {
-            shadeCollapseDispatcherActivityStarter = activityStarter
-            shadeCollapseDispatcher = runCatching {
-                createShadeCollapseDispatcher(activityStarter)
-            }.onFailure {
-                logShadeCollapseDispatcherFailureOnce(
-                    "SystemUI shade-collapse callbacks are unavailable; " +
-                            "activity launches will dismiss the quick-toggle dialog immediately",
-                    it,
-                )
-            }.getOrNull()
+    private fun registerControlCenterCollapseMonitor(
+        activityStarter: Any,
+        action: Runnable,
+        isActive: () -> Boolean,
+    ): Boolean {
+        val controllerLazy = runCatching {
+            activityStarter.javaClass.findField(CONTROL_CENTER_CONTROLLER_FIELD)
+        }.getOrNull()?.get(activityStarter) ?: return false
+        val controller = resolveLazyValue(
+            lazyValue = controllerLazy,
+            description = "ControlCenterActivityStarter.controlCenterController",
+        )
+        val isUseControlCenterMethod = controller.javaClass.findMethod(
+            IS_USE_CONTROL_CENTER_METHOD,
+            0,
+        )
+        if (isUseControlCenterMethod.invokeUnwrapped(controller) != true) {
+            return false
         }
-        return shadeCollapseDispatcher
+        val isCollapsedMethod = controller.javaClass.findMethod(IS_COLLAPSED_METHOD, 0)
+        startControlCenterCollapseMonitor(
+            controller = controller,
+            isCollapsedMethod = isCollapsedMethod,
+            action = action,
+            isActive = isActive,
+        )
+        return true
     }
 
-    private fun createShadeCollapseDispatcher(activityStarter: Any): ShadeCollapseDispatcher {
-        val activityStarterInternal = activityStarter.javaClass
-            .getField(ACTIVITY_STARTER_INTERNAL_FIELD)
-            .get(activityStarter)
+    private fun startControlCenterCollapseMonitor(
+        controller: Any,
+        isCollapsedMethod: Method,
+        action: Runnable,
+        isActive: () -> Boolean,
+    ) {
+        var observedExpanded = false
+        var consecutiveCollapsedSamples = 0
+        lateinit var monitor: Runnable
+        monitor = Runnable {
+            if (!isActive()) {
+                return@Runnable
+            }
+            val isCollapsed = runCatching {
+                isCollapsedMethod.invokeUnwrapped(controller) as? Boolean
+                    ?: error("ControlCenterController.isCollapsed() returned a non-boolean value")
+            }.getOrElse { failure ->
+                logCollapseMonitorFailureOnce(
+                    "Failed to monitor the HyperOS control-center collapse state; " +
+                            "dismissing the quick-toggle dialog",
+                    failure,
+                )
+                action.run()
+                return@Runnable
+            }
+            if (isCollapsed) {
+                consecutiveCollapsedSamples++
+                if (
+                    observedExpanded ||
+                    consecutiveCollapsedSamples >= COLLAPSED_CONFIRMATION_SAMPLE_COUNT
+                ) {
+                    action.run()
+                    return@Runnable
+                }
+            } else {
+                observedExpanded = true
+                consecutiveCollapsedSamples = 0
+            }
+            mainHandler.postDelayed(monitor, COLLAPSE_POLL_INTERVAL_MS)
+        }
+        mainHandler.post(monitor)
+    }
+
+    private fun registerShadePostCollapseAction(activityStarter: Any, action: Runnable) {
+        val actualActivityStarter = unwrapActualActivityStarter(activityStarter)
+        val activityStarterInternal = actualActivityStarter.javaClass
+            .findField(ACTIVITY_STARTER_INTERNAL_FIELD)
+            .get(actualActivityStarter)
             ?: error("ActivityStarterImpl.activityStarterInternal is null")
         val shadeControllerLazy = activityStarterInternal.javaClass
-            .getField(SHADE_CONTROLLER_LAZY_FIELD)
+            .findField(SHADE_CONTROLLER_LAZY_FIELD)
             .get(activityStarterInternal)
             ?: error("ActivityStarterInternal.shadeControllerLazy is null")
-        val shadeController = shadeControllerLazy.javaClass
-            .findMethod(DAGGER_LAZY_GET_METHOD, 0)
-            .invokeUnwrapped(shadeControllerLazy)
-            ?: error("ActivityStarterInternal.shadeControllerLazy.get() returned null")
+        val shadeController = resolveLazyValue(
+            lazyValue = shadeControllerLazy,
+            description = "ActivityStarterInternal.shadeControllerLazy",
+        )
         val addPostCollapseActionMethod = shadeController.javaClass.findMethod(
             ADD_POST_COLLAPSE_ACTION_METHOD,
             Runnable::class.java,
         )
-        return ShadeCollapseDispatcher(
-            shadeController = shadeController,
-            addPostCollapseActionMethod = addPostCollapseActionMethod,
-        )
+        addPostCollapseActionMethod.invokeUnwrapped(shadeController, action)
     }
 
-    private fun logShadeCollapseDispatcherFailureOnce(message: String, throwable: Throwable) {
-        if (shadeCollapseDispatcherFailureLogged) {
+    private fun unwrapActualActivityStarter(activityStarter: Any): Any {
+        var currentStarter = activityStarter
+        repeat(ACTIVITY_STARTER_UNWRAP_LIMIT) {
+            val actualStarterField = runCatching {
+                currentStarter.javaClass.findField(ACTUAL_STARTER_FIELD)
+            }.getOrNull() ?: return currentStarter
+            val actualStarterLazy = actualStarterField.get(currentStarter)
+                ?: error("ActivityStarter.actualStarter is null")
+            val nextStarter = resolveLazyValue(
+                lazyValue = actualStarterLazy,
+                description = "ActivityStarter.actualStarter",
+            )
+            check(nextStarter !== currentStarter) {
+                "ActivityStarter.actualStarter resolves to itself"
+            }
+            currentStarter = nextStarter
+        }
+        error("ActivityStarter delegate nesting exceeds $ACTIVITY_STARTER_UNWRAP_LIMIT levels")
+    }
+
+    private fun resolveLazyValue(lazyValue: Any, description: String): Any {
+        return lazyValue.javaClass.findMethod(DAGGER_LAZY_GET_METHOD, 0)
+            .invokeUnwrapped(lazyValue)
+            ?: error("$description.get() returned null")
+    }
+
+    private fun logCollapseMonitorFailureOnce(message: String, throwable: Throwable) {
+        if (collapseMonitorFailureLogged) {
             return
         }
-        shadeCollapseDispatcherFailureLogged = true
+        collapseMonitorFailureLogged = true
         logError(message, throwable)
     }
 
@@ -930,22 +1028,16 @@ internal class SystemUiQuickToggleDialog(
         val setOnPerformCheckedChangeListenerMethod: Method,
     )
 
-    private data class ShadeCollapseDispatcher(
-        val shadeController: Any,
-        val addPostCollapseActionMethod: Method,
-    ) {
-
-        fun addPostCollapseAction(action: Runnable) {
-            addPostCollapseActionMethod.invokeUnwrapped(shadeController, action)
-        }
-    }
-
     companion object {
         private const val ACTIVITY_STARTER_CLASS = "com.android.systemui.plugins.ActivityStarter"
         private const val POST_START_ACTIVITY_METHOD = "postStartActivityDismissingKeyguard"
+        private const val ACTUAL_STARTER_FIELD = "actualStarter"
+        private const val CONTROL_CENTER_CONTROLLER_FIELD = "controlCenterController"
         private const val ACTIVITY_STARTER_INTERNAL_FIELD = "activityStarterInternal"
         private const val SHADE_CONTROLLER_LAZY_FIELD = "shadeControllerLazy"
         private const val DAGGER_LAZY_GET_METHOD = "get"
+        private const val IS_USE_CONTROL_CENTER_METHOD = "isUseControlCenter"
+        private const val IS_COLLAPSED_METHOD = "isCollapsed"
         private const val ADD_POST_COLLAPSE_ACTION_METHOD = "addPostCollapseAction"
         private const val MIUIX_SLIDING_BUTTON_CLASS = "miuix.slidingwidget.widget.SlidingButton"
         private const val SET_ON_PERFORM_CHECKED_CHANGE_LISTENER_METHOD = "setOnPerformCheckedChangeListener"
@@ -976,6 +1068,9 @@ internal class SystemUiQuickToggleDialog(
         private const val DESCRIPTION_ALPHA = 0.7f
         private const val FALLBACK_DISABLED_ALPHA = 0.38f
         private const val NO_LAUNCH_DELAY_MS = 0
+        private const val ACTIVITY_STARTER_UNWRAP_LIMIT = 4
+        private const val COLLAPSED_CONFIRMATION_SAMPLE_COUNT = 4
+        private const val COLLAPSE_POLL_INTERVAL_MS = 50L
         private const val STATE_POLL_INTERVAL_MS = 2_000L
 
         private val STATE_REFRESH_DELAYS_MS = longArrayOf(300L, 900L, 1_800L)

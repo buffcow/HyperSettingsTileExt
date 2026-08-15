@@ -6,11 +6,11 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import cn.buffcow.hyperste.extension.findField
 import cn.buffcow.hyperste.extension.findMethod
 import cn.buffcow.hyperste.extension.invokeUnwrapped
 import cn.buffcow.hyperste.logDebug
 import cn.buffcow.hyperste.logError
-import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 /**
@@ -503,12 +503,5 @@ internal class SystemUiTileController(
         private const val OBSERVATION_TIMEOUT_MS = 5_000L
         private const val COMPLETION_GRACE_PERIOD_MS = 1_000L
         private const val TEMPORARY_TILE_REMOVAL_DELAY_MS = 500L
-
-        private fun Class<*>.findField(name: String): Field {
-            return generateSequence(this) { type -> type.superclass }
-                .firstNotNullOfOrNull { type ->
-                    runCatching { type.getDeclaredField(name) }.getOrNull()
-                } ?: error("SystemUI field is unavailable: ${this.name}#$name")
-        }
     }
 }

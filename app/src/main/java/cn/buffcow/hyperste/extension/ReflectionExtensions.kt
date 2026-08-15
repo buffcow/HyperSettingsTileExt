@@ -4,6 +4,7 @@
  */
 package cn.buffcow.hyperste.extension
 
+import java.lang.reflect.Field
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 
@@ -16,6 +17,18 @@ internal fun Method.invokeUnwrapped(receiver: Any?, vararg arguments: Any?): Any
     } catch (error: InvocationTargetException) {
         throw error.cause ?: error
     }
+}
+
+/**
+ * Finds an accessible field named [name] in this class or its superclass hierarchy.
+ */
+internal fun Class<*>.findField(name: String): Field {
+    return generateSequence(this) { type -> type.superclass }
+        .firstNotNullOfOrNull { type ->
+            runCatching { type.getDeclaredField(name) }.getOrNull()
+        }?.apply {
+            isAccessible = true
+        } ?: error("Field is unavailable: ${this.name}#$name")
 }
 
 /**
