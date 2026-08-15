@@ -30,6 +30,7 @@
     <string name="quick_toggle_usb_tethering_storage_in_use">USB storage in use</string>
     <string name="quick_toggle_usb_tethering_unavailable">Unavailable</string>
     <string name="quick_toggle_keep_screen_on_title">Keep screen on</string>
+    <string name="quick_toggle_motion_sickness_relief_title">Motion sickness relief</string>
     <string name="quick_toggle_usb_debugging_title">USB debugging</string>
     <string name="quick_toggle_usb_debugging_unlock">Unlock to enable</string>
     <string name="quick_toggle_usb_debugging_disabled_by_admin">Disabled by admin</string>

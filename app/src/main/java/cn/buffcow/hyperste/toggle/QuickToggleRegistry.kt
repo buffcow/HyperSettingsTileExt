@@ -3,6 +3,7 @@ package cn.buffcow.hyperste.toggle
 import cn.buffcow.hyperste.toggle.developer.UsbDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.developer.WirelessDebuggingQuickToggle
 import cn.buffcow.hyperste.toggle.display.KeepScreenOnQuickToggle
+import cn.buffcow.hyperste.toggle.display.MotionSicknessReliefQuickToggle
 import cn.buffcow.hyperste.toggle.google.GoogleServicesQuickToggle
 import cn.buffcow.hyperste.toggle.mishare.MiShareQuickToggle
 import cn.buffcow.hyperste.toggle.usb.UsbOtgQuickToggle
@@ -28,6 +29,7 @@ internal class QuickToggleRegistry(classLoader: ClassLoader) {
             classLoader = classLoader,
         ),
         KeepScreenOnQuickToggle(),
+        MotionSicknessReliefQuickToggle(),
         UsbDebuggingQuickToggle(),
         WirelessDebuggingQuickToggle(
             classLoader = classLoader,
