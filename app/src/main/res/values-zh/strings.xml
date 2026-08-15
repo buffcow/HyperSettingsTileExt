@@ -17,6 +17,10 @@
     <string name="quick_toggle_category_display">显示</string>
     <string name="quick_toggle_category_developer_options">开发者选项</string>
     <string name="quick_toggle_google_services_title">Google 服务</string>
+    <string name="quick_toggle_mi_share_title">小米互传</string>
+    <string name="quick_toggle_mi_share_turning_on">正在开启…</string>
+    <string name="quick_toggle_mi_share_turning_off">正在关闭…</string>
+    <string name="quick_toggle_mi_share_failed">失败</string>
     <string name="quick_toggle_usb_otg_title">USB OTG</string>
     <string name="quick_toggle_usb_tethering_title">USB 网络共享</string>
     <string name="quick_toggle_usb_tethering_starting">正在开启…</string>

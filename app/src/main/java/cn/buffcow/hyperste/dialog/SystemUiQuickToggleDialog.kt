@@ -31,6 +31,7 @@ import cn.buffcow.hyperste.toggle.QuickToggleHost
 import cn.buffcow.hyperste.toggle.QuickToggleRegistry
 import cn.buffcow.hyperste.toggle.QuickToggleSelectionStore
 import cn.buffcow.hyperste.toggle.QuickToggleState
+import cn.buffcow.hyperste.toggle.systemui.SystemUiTileController
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
@@ -43,7 +44,7 @@ import java.lang.reflect.Method
  */
 @SuppressLint("PrivateApi")
 internal class SystemUiQuickToggleDialog(
-    classLoader: ClassLoader,
+    private val classLoader: ClassLoader,
     registry: QuickToggleRegistry,
     private val selectionStore: QuickToggleSelectionStore,
 ) {
@@ -86,6 +87,8 @@ internal class SystemUiQuickToggleDialog(
     }.getOrNull()
     private val quickToggles = registry.entries
     private var activeDialogReference: WeakReference<AlertDialog>? = null
+    private var systemUiTileControllerHost: Any? = null
+    private var systemUiTileController: SystemUiTileController? = null
 
     /**
      * Shows the quick-toggle dialog on the main thread.
@@ -96,6 +99,7 @@ internal class SystemUiQuickToggleDialog(
     fun show(
         context: Context,
         activityStarter: Any,
+        qsHost: Any,
         originalLongClickAction: () -> Unit,
     ): Boolean {
         if (Looper.myLooper() != Looper.getMainLooper()) {
@@ -106,12 +110,13 @@ internal class SystemUiQuickToggleDialog(
             )
             return false
         }
-        return showSafely(context, activityStarter, originalLongClickAction)
+        return showSafely(context, activityStarter, qsHost, originalLongClickAction)
     }
 
     private fun showSafely(
         context: Context,
         activityStarter: Any,
+        qsHost: Any,
         originalLongClickAction: () -> Unit,
     ): Boolean {
         return runCatching {
@@ -120,7 +125,12 @@ internal class SystemUiQuickToggleDialog(
             }
 
             val moduleResources = ModuleResources.from(context)
-            val host = createQuickToggleHost(context, activityStarter, moduleResources)
+            val host = createQuickToggleHost(
+                hostContext = context,
+                activityStarter = activityStarter,
+                qsHost = qsHost,
+                resources = moduleResources,
+            )
             val disabledIds = runCatching {
                 selectionStore.readDisabledIds(context)
             }.onFailure {
@@ -145,6 +155,7 @@ internal class SystemUiQuickToggleDialog(
             showNow(
                 context,
                 activityStarter,
+                qsHost,
                 moduleResources,
                 availableGroups,
                 host,
@@ -201,6 +212,7 @@ internal class SystemUiQuickToggleDialog(
     private fun showNow(
         context: Context,
         activityStarter: Any,
+        qsHost: Any,
         moduleResources: ModuleResources?,
         groups: List<QuickToggleGroupEntry>,
         host: QuickToggleHost,
@@ -250,6 +262,7 @@ internal class SystemUiQuickToggleDialog(
             dialog = dialog,
             context = context,
             activityStarter = activityStarter,
+            qsHost = qsHost,
             originalLongClickAction = originalLongClickAction,
         )
         activeDialogReference = WeakReference(dialog)
@@ -370,6 +383,7 @@ internal class SystemUiQuickToggleDialog(
         dialog: AlertDialog,
         context: Context,
         activityStarter: Any,
+        qsHost: Any,
         originalLongClickAction: () -> Unit,
     ) {
         dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setOnLongClickListener { view ->
@@ -377,7 +391,7 @@ internal class SystemUiQuickToggleDialog(
             view.post {
                 dialog.dismiss()
                 val returnToQuickControls = {
-                    show(context, activityStarter, originalLongClickAction)
+                    show(context, activityStarter, qsHost, originalLongClickAction)
                     Unit
                 }
                 if (!managementDialog.show(context, returnToQuickControls)) {
@@ -601,6 +615,7 @@ internal class SystemUiQuickToggleDialog(
     private fun createQuickToggleHost(
         hostContext: Context,
         activityStarter: Any,
+        qsHost: Any,
         resources: ModuleResources?,
     ): QuickToggleHost {
         require(activityStarterClass.isInstance(activityStarter)) {
@@ -609,6 +624,8 @@ internal class SystemUiQuickToggleDialog(
         return object : QuickToggleHost {
             override val context: Context = hostContext
             override val moduleResources: ModuleResources? = resources
+            override val systemUiTileController: SystemUiTileController =
+                getSystemUiTileController(qsHost, hostContext)
 
             override fun startActivity(intent: Intent) {
                 postStartActivityMethod.invokeUnwrapped(
@@ -618,6 +635,18 @@ internal class SystemUiQuickToggleDialog(
                 )
             }
         }
+    }
+
+    private fun getSystemUiTileController(qsHost: Any, context: Context): SystemUiTileController {
+        if (systemUiTileControllerHost !== qsHost || systemUiTileController == null) {
+            systemUiTileControllerHost = qsHost
+            systemUiTileController = SystemUiTileController(
+                classLoader = classLoader,
+                qsHost = qsHost,
+                hostContext = context,
+            )
+        }
+        return checkNotNull(systemUiTileController)
     }
 
     @Suppress("DEPRECATION")

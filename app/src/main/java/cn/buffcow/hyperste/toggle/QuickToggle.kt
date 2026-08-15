@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.annotation.StringRes
 import cn.buffcow.hyperste.R
 import cn.buffcow.hyperste.resource.ModuleResources
+import cn.buffcow.hyperste.toggle.systemui.SystemUiTileController
 
 /** Declares the visual group that owns a quick toggle. */
 internal enum class QuickToggleCategory(
@@ -42,6 +43,14 @@ internal interface QuickToggleHost {
 
     /** Module resource session aligned with the current SystemUI configuration. */
     val moduleResources: ModuleResources?
+
+    /**
+     * Controller bound to the active SystemUI quick-settings host.
+     *
+     * Feature implementations must use a concrete tile target type so custom `TileService`
+     * instances cannot accidentally share the lifecycle strategy of built-in SystemUI tiles.
+     */
+    val systemUiTileController: SystemUiTileController
 
     /** Starts [intent] through SystemUI's activity-launch pipeline. */
     fun startActivity(intent: Intent)

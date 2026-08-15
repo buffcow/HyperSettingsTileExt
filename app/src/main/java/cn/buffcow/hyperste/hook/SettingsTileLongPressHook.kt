@@ -29,6 +29,9 @@ internal class SettingsTileLongPressHook(
         val activityStarterField = qsTileImplClass.getDeclaredField(ACTIVITY_STARTER_FIELD).apply {
             isAccessible = true
         }
+        val hostField = qsTileImplClass.getDeclaredField(HOST_FIELD).apply {
+            isAccessible = true
+        }
         val quickToggleDialog = SystemUiQuickToggleDialog(
             classLoader = classLoader,
             registry = QuickToggleRegistry(classLoader),
@@ -52,7 +55,9 @@ internal class SettingsTileLongPressHook(
                     ?: error("SettingsTile.mContext is null")
                 val activityStarter = activityStarterField.get(receiver)
                     ?: error("SettingsTile.mActivityStarter is null")
-                quickToggleDialog.show(context, activityStarter) {
+                val qsHost = hostField.get(receiver)
+                    ?: error("SettingsTile.mHost is null")
+                quickToggleDialog.show(context, activityStarter, qsHost) {
                     originalLongClickInvoker.invoke(receiver, expandable)
                 }
             }.getOrElse {
@@ -79,5 +84,6 @@ internal class SettingsTileLongPressHook(
         private const val EXPANDABLE_CLASS = "com.android.systemui.animation.Expandable"
         private const val CONTEXT_FIELD = "mContext"
         private const val ACTIVITY_STARTER_FIELD = "mActivityStarter"
+        private const val HOST_FIELD = "mHost"
     }
 }
