@@ -621,7 +621,11 @@ internal class SystemUiQuickToggleDialog(
             bindCurrentState(binding)
         }
         scheduleStateRefreshes(binding)
-        if (stateChangeResult.isSuccess && binding.collapseAfterSwitching) {
+        if (
+            stateChangeResult.isSuccess &&
+            binding.collapseAfterSwitching &&
+            (!requestedState || binding.quickToggle.canCollapseAfterEnabling)
+        ) {
             binding.collapsePanels()
         }
     }

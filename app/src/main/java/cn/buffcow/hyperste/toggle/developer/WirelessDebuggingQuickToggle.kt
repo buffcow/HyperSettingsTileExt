@@ -42,6 +42,7 @@ internal class WirelessDebuggingQuickToggle(
     override val descriptionRes: Int? = null
     override val fallbackDescription: String? = null
     override val longClickAction = QuickToggleAction(::openWirelessDebuggingSettings)
+    override val canCollapseAfterEnabling: Boolean = false
 
     private var adbFailureLogged = false
     private val adbBackend: AdbManagerBackend? by lazy(LazyThreadSafetyMode.NONE) {

@@ -108,6 +108,18 @@ internal interface QuickToggle {
         get() = null
 
     /**
+     * Whether the global collapse-after-switching preference may collapse SystemUI after this
+     * toggle is enabled.
+     *
+     * Implementations should return `false` when the dialog must remain visible while an enabled
+     * state resolves asynchronous information. Disabling a toggle is not restricted by this
+     * capability. This capability also does not affect manual dialog dismissal or long-click
+     * actions.
+     */
+    val canCollapseAfterEnabling: Boolean
+        get() = true
+
+    /**
      * Reads the current system-backed state.
      *
      * Implementations may throw when a platform API cannot be reached. The dialog treats an
